@@ -1,0 +1,42 @@
+# Render Blueprint — LIQUI Mini CRM
+# Docs: https://render.com/docs/blueprint-spec
+#
+# No Dashboard Render: New → Blueprint → conecte este repo.
+# Defina as env vars marcadas sync:false no painel.
+#
+# Arquitetura:
+#   - Static Site: front Vite (dist/)
+#   - Cron Job: chama Edge Function embed-crm-batch às 18:00 BRT (21:00 UTC)
+#   - Edge Functions + DB: permanecem no Supabase
+
+services:
+  - type: web
+    name: liqui-web
+    runtime: static
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+      # Em prod, NÃO defina VITE_AI_PREFER_LOCAL — use Edge Functions
+      - key: VITE_SUPABASE_FUNCTIONS_URL
+        sync: false
+
+  - type: cron
+    name: liqui-embed-18h
+    runtime: node
+    schedule: "0 21 * * *" # 18:00 America/Sao_Paulo (UTC-3)
+    buildCommand: "echo cron-ready"
+    startCommand: >-
+      node -e "const u=process.env.EMBED_FUNCTION_URL;const t=process.env.CRON_SECRET;if(!u||!t){console.error('EMBED_FUNCTION_URL/CRON_SECRET missing');process.exit(1)}fetch(u,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+t,apikey:t},body:JSON.stringify({trigger_source:'cron'})}).then(async r=>{const b=await r.text();console.log(r.status,b);if(!r.ok)process.exit(1)}).catch(e=>{console.error(e);process.exit(1)})"
+    envVars:
+      - key: EMBED_FUNCTION_URL
+        sync: false
+      - key: CRON_SECRET
+        sync: false

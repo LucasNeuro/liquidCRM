@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+
+  /* Contabilidade Facilitada */
+  --color-liqui-orange: #f7941d;
+  --color-liqui-orange-dark: #e07f0a;
+  --color-liqui-orange-soft: #fff4e8;
+  --color-liqui-navy: #0a1b39;
+  --color-liqui-navy-soft: #12284f;
+  --color-liqui-ink: #0a1b39;
+  --color-liqui-muted: #5b6b7c;
+  --color-liqui-panel: #fff7ee;
+  --color-liqui-border: #e6e9ef;
+  --color-liqui-input: #fafbfc;
+
+  /* aliases usados em botões (mantém classes antigas se restarem) */
+  --color-liqui-lime: #f7941d;
+  --color-liqui-lime-dark: #e07f0a;
+  --color-liqui-blue: #0a1b39;
+  --color-liqui-green: #f7941d;
+  --color-liqui-yellow: #f7941d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--color-liqui-ink);
+  background: #ffffff;
+  -webkit-font-smoothing: antialiased;
+}
+
+@keyframes sideover-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0.85;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.sideover-panel {
+  animation: sideover-in 0.22s ease-out;
+}
