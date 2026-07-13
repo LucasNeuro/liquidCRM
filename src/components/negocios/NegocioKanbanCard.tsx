@@ -49,9 +49,17 @@ export function NegocioKanbanCard({
         <LeadAvatar name={leadName} size="sm" />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <p className="line-clamp-2 text-sm font-bold text-liqui-navy">
-              {negocio.titulo}
-            </p>
+            <div className="min-w-0">
+              <p className="line-clamp-2 text-sm font-bold text-liqui-navy">
+                {negocio.titulo}
+              </p>
+              <p className="mt-0.5 truncate text-xs font-semibold text-zinc-600">
+                {leadName}
+              </p>
+              <p className="mt-0.5 text-[11px] text-zinc-400">
+                {negocio.codigo || '—'} · LED-{negocio.id_lead}
+              </p>
+            </div>
             <span
               className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
                 negocio.status_negocio === 'ganho'
@@ -64,19 +72,6 @@ export function NegocioKanbanCard({
               {badge}
             </span>
           </div>
-          <p className="mt-0.5 text-[11px] text-zinc-400">
-            {negocio.codigo || '—'}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-3 flex items-center gap-2">
-        <LeadAvatar name={leadName} size="sm" />
-        <div className="min-w-0">
-          <p className="truncate text-xs font-semibold text-zinc-600">
-            {leadName}
-          </p>
-          <p className="text-[10px] text-zinc-400">LED-{negocio.id_lead}</p>
         </div>
       </div>
 
