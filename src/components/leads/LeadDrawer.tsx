@@ -38,10 +38,10 @@ import type {
   RespostaPesquisa,
   TentativaCompra,
 } from '../../lib/types'
-import { NegocioFormSideOver } from '../negocios/NegocioFormSideOver'
 import { formatCellValue, formatDateTimeBr } from '../../lib/format'
 import { LeadIdBadge, NegocioIdBadge } from '../ui/IdBadge'
 import { LeadAvatar } from '../ui/LeadAvatar'
+import { NegocioFormInline } from '../negocios/NegocioFormInline'
 import { GeminiIcon } from '../ui/LlmIcons'
 import { MarkdownViewer } from '../ui/MarkdownViewer'
 import { Modal } from '../ui/Modal'
@@ -81,9 +81,9 @@ export function LeadDrawer({
   const [timeline, setTimeline] = useState<LeadInsight[]>([])
   const [viewing, setViewing] = useState<LeadInsight | null>(null)
   const [negocios, setNegocios] = useState<Negocio[]>([])
+  const [showNegocioForm, setShowNegocioForm] = useState(false)
   const [negStages, setNegStages] = useState<PipelineStage[]>([])
   const [negPipelineId, setNegPipelineId] = useState('')
-  const [showCreateNegocio, setShowCreateNegocio] = useState(false)
   const [loadingInsight, setLoadingInsight] = useState(false)
   const [loadingClassify, setLoadingClassify] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -782,14 +782,19 @@ export function LeadDrawer({
         </Modal>
       )}
 
-      {showCreateNegocio && negPipelineId && negStages[0] && (
-        <NegocioFormSideOver
-          pipelineId={negPipelineId}
-          stages={negStages}
-          defaultLeadId={lead.id_lead}
-          onClose={() => setShowCreateNegocio(false)}
-          onCreated={() => void loadNegocios()}
-        />
+      {showNegocioForm && (
+        <div className="border-t border-zinc-100 p-4">
+          <NegocioFormInline
+            pipelineId={negPipelineId}
+            stages={negStages}
+            defaultLeadId={lead.id_lead}
+            onClose={() => setShowNegocioForm(false)}
+            onCreated={() => {
+              setShowNegocioForm(false)
+              void loadNegocios()
+            }}
+          />
+        </div>
       )}
     </>
   )
