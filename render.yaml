@@ -15,20 +15,12 @@ services:
     runtime: static
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
-    startCommand: npm run start
     envVars:
-      - key: PUBLIC_URL
-        value: https://liquidcrm.onrender.com
-        sync: false
       - key: VITE_SUPABASE_URL
         sync: false
       - key: VITE_SUPABASE_ANON_KEY
         sync: false
       - key: VITE_SUPABASE_FUNCTIONS_URL
-        sync: false
-      - key: VITE_AI_PROXY_URL
-        sync: false
-      - key: VITE_AI_PREFER_LOCAL
         sync: false
 
   - type: cron
