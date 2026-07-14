@@ -5,8 +5,12 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
-    preview: {
-      allowedHosts: ['liquidcrm.onrender.com', 'localhost', '127.0.0.1'],
-    },
+    host: '0.0.0.0',
+    port: parseInt(process.env.PORT || '3000'),
+    strictPort: true,
+  },
+  preview: {
+    host: '0.0.0.0',
+    port: parseInt(process.env.PORT || '4173'),
   },
 })
