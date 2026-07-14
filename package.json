@@ -12,7 +12,7 @@
     "build:server": "tsc -p tsconfig.server.json",
     "deploy:edge": "node scripts/deploy-edge.mjs",
     "preview": "vite preview",
-    "start": "npx serve dist -l $PORT -s .serve.json"
+    "start": "npx serve -s dist -l $PORT"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.0",
