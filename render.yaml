@@ -16,17 +16,19 @@ services:
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
     startCommand: npm run start
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
     envVars:
+      - key: PUBLIC_URL
+        value: https://liquidcrm.onrender.com
+        sync: false
       - key: VITE_SUPABASE_URL
         sync: false
       - key: VITE_SUPABASE_ANON_KEY
         sync: false
-      # Em prod, NÃO defina VITE_AI_PREFER_LOCAL — use Edge Functions
       - key: VITE_SUPABASE_FUNCTIONS_URL
+        sync: false
+      - key: VITE_AI_PROXY_URL
+        sync: false
+      - key: VITE_AI_PREFER_LOCAL
         sync: false
 
   - type: cron
