@@ -62,8 +62,9 @@ export function SignupPage() {
     <AuthShell
       title="Crie sua conta e centralize operações com IA."
       subtitle="Preencha seus dados e comece a usar o LIQUI em poucos minutos."
+      showBack
       backTo="/login"
-      backLabel="Entrar"
+      backLabel="Voltar"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {!supabaseConfigured && (

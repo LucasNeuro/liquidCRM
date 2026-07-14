@@ -4,9 +4,11 @@ import {
   PendingRoute,
   ProtectedRoute,
   PublicOnlyRoute,
+  RequireMenuAccess,
 } from './components/ProtectedRoute'
 import { AppShell } from './layouts/AppShell'
 import { DashboardPage } from './pages/DashboardPage'
+import { DistribuicaoPage } from './pages/DistribuicaoPage'
 import { LeadsPage } from './pages/LeadsPage'
 import { LoginPage } from './pages/LoginPage'
 import { NegociosPage } from './pages/NegociosPage'
@@ -30,11 +32,27 @@ export default function App() {
 
       <Route element={<ProtectedRoute />}>
         <Route element={<AppShell />}>
-          <Route path="/leads" element={<LeadsPage />} />
-          <Route path="/tentativas" element={<TentativasPage />} />
-          <Route path="/pesquisas" element={<RespostasPage />} />
-          <Route path="/negocios" element={<NegociosPage />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route element={<RequireMenuAccess access="leads" />}>
+            <Route path="/leads" element={<LeadsPage />} />
+          </Route>
+          <Route element={<RequireMenuAccess access="negocios" />}>
+            <Route path="/negocios" element={<NegociosPage />} />
+          </Route>
+          <Route element={<RequireMenuAccess access="tentativas" />}>
+            <Route path="/tentativas" element={<TentativasPage />} />
+          </Route>
+          <Route element={<RequireMenuAccess access="pesquisas" />}>
+            <Route path="/pesquisas" element={<RespostasPage />} />
+          </Route>
+          <Route element={<RequireMenuAccess access="dashboard" />}>
+            <Route path="/dashboard" element={<DashboardPage />} />
+          </Route>
+          <Route element={<RequireMenuAccess access="distribuicao" />}>
+            <Route
+              path="/operacao/distribuicao"
+              element={<DistribuicaoPage />}
+            />
+          </Route>
           <Route element={<OwnerRoute />}>
             <Route path="/plataforma" element={<PlatformPage />} />
           </Route>

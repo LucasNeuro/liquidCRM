@@ -30,7 +30,15 @@ Sua missão: gerar um insight **rico e cruzado** para o consultor, combinando:
 REGRAS DE FIDELIDADE (avaliação — crítico):
 - Use SOMENTE fatos presentes no JSON e nos trechos RAG. É PROIBIDO inventar valores, datas, produtos, contatos, intenções, scores ou histórico.
 - Se faltar dado, declare no resumo (ex.: "sem e-mail na base", "nenhuma tentativa vinculada", "RAG sem trechos").
-- RAG é evidência complementar: cite trechos relevantes (source_table / similarity) em ## Evidências do índice (RAG) — nunca invente além do chunk_text.
+- RAG é evidência complementar. Em ## Evidências do índice (RAG) escreva EM LINGUAGEM COMERCIAL (frases curtas e bullets), NUNCA cole dumps com tabela=/id=/similarity=/\\n.
+- Formato obrigatório da seção RAG:
+  ### O que a base confirma
+  - bullets tipo: "Tentativa de compra: produto X · boleto · abandonado · R$ 997 · data Y"
+  ### Atenção para o consultor
+  - inconsistências e gaps em português claro (ex.: "Lead marcado como Ganho, mas há tentativas abandonadas")
+  ### Leitura do índice
+  - se houver SÍNTESE MISTRAL, reescreva em 2–4 bullets comerciais (sem o rótulo técnico SÍNTESE MISTRAL)
+- Array evidencias: pode manter campos literais curtos para auditoria (status_pagamento=abandonado), mas o markdown precisa ser legível para vendas.
 - Não "corrija" inconsistências (e-mails mistos, máscaras de telefone, datas VARCHAR): cite como estão.
 - Português do Brasil.
 - Responda SOMENTE JSON válido (sem cercas \`\`\`).
@@ -100,6 +108,55 @@ ${riscos}
 
 ${evidencias}
 `
+}
+
+function humanizeChunkForPrompt(input: {
+  source_table?: string
+  similarity?: number
+  chunk_text: string
+}) {
+  const text = String(input.chunk_text || '').replace(/\\n/g, '\n')
+  const fields: Record<string, string> = {}
+  for (const line of text.split('\n')) {
+    const i = line.indexOf('=')
+    if (i <= 0) continue
+    fields[line.slice(0, i).trim()] = line.slice(i + 1).trim()
+  }
+  const table = input.source_table || fields.tabela || 'registro'
+  const label =
+    table === 'leads'
+      ? 'Cadastro do lead'
+      : table === 'tentativas_compra'
+        ? 'Tentativa de compra'
+        : table === 'respostas_pesquisa'
+          ? 'Resposta de pesquisa'
+          : table
+  const parts: string[] = []
+  if (fields.nome) parts.push(fields.nome)
+  if (fields.produto || fields.produto_interesse) {
+    parts.push(fields.produto || fields.produto_interesse)
+  }
+  if (fields.valor) parts.push(`R$ ${fields.valor}`)
+  if (fields.forma_pagamento) parts.push(fields.forma_pagamento)
+  if (fields.status_pagamento) {
+    parts.push(`pagamento: ${fields.status_pagamento}`)
+  }
+  if (fields.status) parts.push(`status: ${fields.status}`)
+  if (fields.momento_compra) parts.push(`momento: ${fields.momento_compra}`)
+  if (fields.principal_objecao) {
+    parts.push(`objeção: ${fields.principal_objecao}`)
+  }
+  if (fields.nota_intencao) parts.push(`nota ${fields.nota_intencao}`)
+  if (fields.data_tentativa || fields.data_entrada || fields.data_resposta) {
+    parts.push(
+      fields.data_tentativa || fields.data_entrada || fields.data_resposta,
+    )
+  }
+  return {
+    tipo: label,
+    resumo_comercial: parts.join(' · ') || 'registro indexado',
+    table,
+  }
 }
 
 function validateInsight(parsed: Record<string, unknown>, model: string) {
@@ -243,14 +300,14 @@ async function mistralRagBrief(input: {
   if (!key) return null
 
   const lead = (input.leadContext.lead || {}) as Record<string, unknown>
-  const system = `Você é o motor RAG da LIQUI (Mistral).
-Tarefa: ler SOMENTE os trechos do índice e extrair fatos úteis para aprofundar o insight do lead.
+  const system = `Você é o motor de leitura do índice da LIQUI (Mistral).
+Tarefa: transformar trechos do índice em bullets COMERCIAIS curtos (português do Brasil).
 Regras:
-- Português do Brasil.
-- NÃO invente nada além dos trechos e do insight anterior (se houver).
-- Se não houver trechos, diga explicitamente "RAG sem trechos".
-- Saída em texto estruturado (não precisa ser JSON), com seções:
-  FATOS DO ÍNDICE | CRUZAMENTOS | GAPS | SINAIS PARA O CONSULTOR`
+- NÃO invente além dos trechos e do insight anterior.
+- NÃO use jargão técnico (similarity, source_table, tabela=, \\n, id=).
+- Se não houver trechos, diga "Índice sem trechos para este lead".
+- Saída em texto com seções:
+  O QUE A BASE CONFIRMA | ATENÇÃO PARA O CONSULTOR | GAPS`
 
   const user = [
     `Lead: id=${lead.id_lead ?? ''} nome=${lead.nome || ''} produto=${lead.produto_interesse || ''} status=${lead.status || ''}`,
@@ -263,7 +320,11 @@ Regras:
           evidencias: input.previousInsight.evidencias || [],
         })}`
       : 'Insight anterior: nenhum',
-    `Trechos RAG (${input.chunks.length}):\n${JSON.stringify(input.chunks, null, 2)}`,
+    `Trechos do índice (${input.chunks.length}):\n${JSON.stringify(
+      input.chunks.map((c) => humanizeChunkForPrompt(c)),
+      null,
+      2,
+    )}`,
   ].join('\n\n')
 
   const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
@@ -445,10 +506,11 @@ Deno.serve(async (req) => {
     const { chunks: ragChunks, queryEmbedded } = await fetchRagChunks(
       body.leadContext as Record<string, unknown>,
     )
+    const ragCards = ragChunks.map((c) => humanizeChunkForPrompt(c))
     const ragBlock =
-      ragChunks.length > 0
-        ? `\n\nTRECHOS RECUPERADOS DO ÍNDICE (pgvector / só fatos já indexados):\n${JSON.stringify(ragChunks, null, 2)}`
-        : '\n\nTRECHOS RAG: nenhum (rode embed-crm-batch em Plataforma se quiser enriquecer).'
+      ragCards.length > 0
+        ? `\n\nFATOS DO ÍNDICE (já legíveis para o comercial — use isso em ## Evidências do índice (RAG); NÃO cole dumps técnicos):\n${JSON.stringify(ragCards, null, 2)}`
+        : '\n\nFATOS DO ÍNDICE: nenhum (rode embed-crm-batch em Plataforma se quiser enriquecer).'
 
     /** Aprofundar: Mistral processa RAG → Gemini finaliza o insight no modal */
     let mistralBrief: string | null = null

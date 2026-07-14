@@ -1,4 +1,8 @@
 import { supabase } from './supabase'
+import {
+  normalizeMenuAccess,
+  type MenuAccess,
+} from './menuAccess'
 
 /** Cargos pré-setados em profiles.role (ENUM ou text). */
 export type ProfileRole = 'owner' | 'consultor'
@@ -15,51 +19,83 @@ export type Profile = {
   role: ProfileRole
   active?: boolean
   created_at?: string
+  menu_access?: MenuAccess
+}
+
+/** true = pode usar o CRM; false/pendente = aguardando owner. */
+export function isProfileActive(active: unknown): boolean {
+  if (active === false || active === 0 || active === '0') return false
+  if (active === 'false' || active === 'f' || active === 'F') return false
+  return true
 }
 
 function normalizeRole(role: unknown): ProfileRole {
   const r = String(role ?? '')
     .trim()
     .toLowerCase()
-  return r === 'owner' ? 'owner' : 'consultor'
+  // legado DB: 'agente' = consultor de vendas
+  if (r === 'owner') return 'owner'
+  return 'consultor'
 }
 
 function normalizeProfile(row: Record<string, unknown> | null): Profile | null {
   if (!row?.id) return null
+  const role = normalizeRole(row.role)
   return {
     id: String(row.id),
     full_name: String(row.full_name ?? ''),
     email: String(row.email ?? ''),
-    role: normalizeRole(row.role),
-    active: row.active === false ? false : true,
+    role,
+    active: isProfileActive(row.active),
     created_at: row.created_at ? String(row.created_at) : undefined,
+    menu_access: normalizeMenuAccess(row.menu_access, role),
   }
 }
+
+/** Exposto para Realtime (AuthContext) aplicar UPDATE de profiles. */
+export function normalizeProfileRow(
+  row: Record<string, unknown> | null,
+): Profile | null {
+  return normalizeProfile(row)
+}
+
+const PROFILE_COLS =
+  'id, full_name, email, role, active, created_at, menu_access'
+const PROFILE_COLS_NO_MENU =
+  'id, full_name, email, role, active, created_at'
+const PROFILE_COLS_MIN = 'id, full_name, email, role, created_at'
 
 export async function fetchMyProfile(
   userId: string,
   email?: string | null,
 ) {
-  const cols = 'id, full_name, email, role, active, created_at'
-
   let data: Record<string, unknown> | null = null
   let error: { message: string } | null = null
 
   {
     const res = await supabase
       .from('profiles')
-      .select(cols)
+      .select(PROFILE_COLS)
       .eq('id', userId)
       .maybeSingle()
     data = (res.data as Record<string, unknown> | null) ?? null
     error = res.error
   }
 
-  // Coluna active pode não existir se migrate-plataforma não rodou
+  if (error && /menu_access|column/i.test(error.message)) {
+    const fb = await supabase
+      .from('profiles')
+      .select(PROFILE_COLS_NO_MENU)
+      .eq('id', userId)
+      .maybeSingle()
+    data = (fb.data as Record<string, unknown> | null) ?? null
+    error = fb.error
+  }
+
   if (error && /active|column/i.test(error.message)) {
     const fallback = await supabase
       .from('profiles')
-      .select('id, full_name, email, role, created_at')
+      .select(PROFILE_COLS_MIN)
       .eq('id', userId)
       .maybeSingle()
     data = (fallback.data as Record<string, unknown> | null) ?? null
@@ -70,15 +106,26 @@ export async function fetchMyProfile(
 
   let profile = normalizeProfile(data)
 
-  // Fallback por e-mail (caso raro de id dessincronizado)
   if (!profile && email) {
     const byEmail = await supabase
       .from('profiles')
-      .select('id, full_name, email, role, created_at')
+      .select(PROFILE_COLS)
       .ilike('email', email.trim())
       .maybeSingle()
-    if (byEmail.error) throw new Error(byEmail.error.message)
-    profile = normalizeProfile(byEmail.data as Record<string, unknown> | null)
+    if (byEmail.error && /menu_access|column/i.test(byEmail.error.message)) {
+      const fb = await supabase
+        .from('profiles')
+        .select(PROFILE_COLS_NO_MENU)
+        .ilike('email', email.trim())
+        .maybeSingle()
+      if (fb.error) throw new Error(fb.error.message)
+      profile = normalizeProfile(fb.data as Record<string, unknown> | null)
+    } else {
+      if (byEmail.error) throw new Error(byEmail.error.message)
+      profile = normalizeProfile(
+        byEmail.data as Record<string, unknown> | null,
+      )
+    }
   }
 
   return profile
@@ -87,13 +134,34 @@ export async function fetchMyProfile(
 export async function fetchProfiles() {
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, full_name, email, role, active, created_at')
+    .select(PROFILE_COLS)
     .order('created_at', { ascending: false })
+
+  if (error && /menu_access|column/i.test(error.message)) {
+    const fb = await supabase
+      .from('profiles')
+      .select(PROFILE_COLS_NO_MENU)
+      .order('created_at', { ascending: false })
+    if (fb.error && /active|column/i.test(fb.error.message)) {
+      const fallback = await supabase
+        .from('profiles')
+        .select(PROFILE_COLS_MIN)
+        .order('created_at', { ascending: false })
+      if (fallback.error) throw new Error(fallback.error.message)
+      return (fallback.data ?? [])
+        .map((row) => normalizeProfile(row as Record<string, unknown>))
+        .filter(Boolean) as Profile[]
+    }
+    if (fb.error) throw new Error(fb.error.message)
+    return (fb.data ?? [])
+      .map((row) => normalizeProfile(row as Record<string, unknown>))
+      .filter(Boolean) as Profile[]
+  }
 
   if (error && /active|column/i.test(error.message)) {
     const fallback = await supabase
       .from('profiles')
-      .select('id, full_name, email, role, created_at')
+      .select(PROFILE_COLS_MIN)
       .order('created_at', { ascending: false })
     if (fallback.error) throw new Error(fallback.error.message)
     return (fallback.data ?? [])

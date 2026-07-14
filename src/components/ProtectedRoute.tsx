@@ -1,5 +1,10 @@
 import { Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import {
+  firstAllowedPath,
+  hasMenuAccess,
+  type MenuAccessKey,
+} from '../lib/menuAccess'
 
 function AuthSpinner() {
   return (
@@ -38,7 +43,12 @@ export function PendingRoute() {
   }
 
   if (profile && profile.active !== false) {
-    return <Navigate to="/leads" replace />
+    return (
+      <Navigate
+        to={firstAllowedPath(profile.menu_access, profile.role)}
+        replace
+      />
+    )
   }
 
   return <Outlet />
@@ -51,10 +61,28 @@ export function OwnerRoute() {
   if (loading) return <AuthSpinner />
 
   if (!isOwner) {
-    return <Navigate to="/dashboard" replace />
+    return <Navigate to="/leads" replace />
   }
 
   return <Outlet />
+}
+
+/** Exige flag de menu (owners passam sempre). */
+export function RequireMenuAccess({ access }: { access: MenuAccessKey }) {
+  const { loading, profile, isOwner } = useAuth()
+
+  if (loading) return <AuthSpinner />
+
+  if (isOwner || hasMenuAccess(profile?.menu_access, access, profile?.role)) {
+    return <Outlet />
+  }
+
+  return (
+    <Navigate
+      to={firstAllowedPath(profile?.menu_access, profile?.role)}
+      replace
+    />
+  )
 }
 
 export function PublicOnlyRoute() {
@@ -72,7 +100,12 @@ export function PublicOnlyRoute() {
     if (!profile || profile.active === false) {
       return <Navigate to="/pendente" replace />
     }
-    return <Navigate to="/leads" replace />
+    return (
+      <Navigate
+        to={firstAllowedPath(profile.menu_access, profile.role)}
+        replace
+      />
+    )
   }
 
   return <Outlet />

@@ -5,20 +5,32 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Search,
   Shield,
+  UserCheck,
+  UserMinus,
 } from 'lucide-react'
-import {
-  CrmEntitySideOver,
-  Field,
-} from '../components/ui/CrmEntitySideOver'
 import { DataTable, type DataColumn } from '../components/ui/DataTable'
+import {
+  DateRangePills,
+  isWithinLastDays,
+  type CadastroDays,
+} from '../components/ui/DateRangePills'
 import { IconBubble } from '../components/ui/IconBubble'
 import { UuidBadge } from '../components/ui/IdBadge'
 import { LlmIconBubble } from '../components/ui/LlmIcons'
 import { SideOver } from '../components/ui/SideOver'
+import { UserAccessSideOver } from '../components/platform/UserAccessSideOver'
 import { useShellHeader } from '../layouts/ShellContext'
 import { runEmbedCrmBatch } from '../lib/ai'
 import { formatDateTimeBr } from '../lib/format'
+import {
+  DEFAULT_CONSULTOR_MENU_ACCESS,
+  FULL_OWNER_MENU_ACCESS,
+  normalizeMenuAccess,
+  type MenuAccess,
+  type MenuAccessKey,
+} from '../lib/menuAccess'
 import {
   fetchEmbeddingJobs,
   fetchEmbeddingStats,
@@ -35,6 +47,8 @@ import { supabase } from '../lib/supabase'
 
 type MainTab = 'visao' | 'usuarios' | 'indexacoes' | 'modelos'
 type ViewMode = 'paineis' | 'tabela'
+type UserStatusFilter = 'todos' | 'pendente' | 'ativo'
+type BulkAction = 'activate' | 'inactivate' | 'delete'
 
 const OPERATING_MODELS = [
   {
@@ -67,9 +81,24 @@ function roleLabel(role: string) {
   return 'Consultor'
 }
 
+function RoleBadge({ role }: { role: string }) {
+  if (role === 'owner') {
+    return (
+      <span className="rounded-full bg-liqui-navy px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+        {roleLabel(role)}
+      </span>
+    )
+  }
+  return (
+    <span className="rounded-full bg-liqui-orange-soft px-2 py-0.5 text-[10px] font-bold uppercase text-liqui-navy">
+      {roleLabel(role)}
+    </span>
+  )
+}
+
 export function PlatformPage() {
   const { setHeader } = useShellHeader()
-  const [tab, setTab] = useState<MainTab>('visao')
+  const [tab, setTab] = useState<MainTab>('usuarios')
   const [view, setView] = useState<ViewMode>('tabela')
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [jobs, setJobs] = useState<EmbeddingJob[]>([])
@@ -90,11 +119,21 @@ export function PlatformPage() {
   }>(null)
   const [formName, setFormName] = useState('')
   const [formEmail, setFormEmail] = useState('')
-  const [formPassword, setFormPassword] = useState('')
   const [formRole, setFormRole] = useState<ProfileRole>('consultor')
   const [formActive, setFormActive] = useState(true)
+  const [formMenu, setFormMenu] = useState<MenuAccess>({
+    ...DEFAULT_CONSULTOR_MENU_ACCESS,
+  })
 
   const [jobDetail, setJobDetail] = useState<EmbeddingJob | null>(null)
+
+  const [userQuery, setUserQuery] = useState('')
+  const [userDays, setUserDays] = useState<CadastroDays | null>(null)
+  const [userStatus, setUserStatus] = useState<UserStatusFilter>('todos')
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(
+    () => new Set(),
+  )
+  const [bulkWorking, setBulkWorking] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -113,6 +152,7 @@ export function PlatformPage() {
       setMistralCost(usage.mistralCost)
       setUsageMissing(Boolean(usage.missing))
       setProfiles(users)
+      setSelectedUserIds(new Set())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao carregar')
     } finally {
@@ -187,22 +227,160 @@ export function PlatformPage() {
     [jobs],
   )
 
+  const filteredProfiles = useMemo(() => {
+    const q = userQuery.trim().toLowerCase()
+    return profiles.filter((p) => {
+      if (!isWithinLastDays(p.created_at, userDays)) return false
+      const isActive = p.active !== false
+      if (userStatus === 'pendente' && isActive) return false
+      if (userStatus === 'ativo' && !isActive) return false
+      if (!q) return true
+      return (
+        p.full_name.toLowerCase().includes(q) ||
+        p.email.toLowerCase().includes(q) ||
+        roleLabel(p.role).toLowerCase().includes(q)
+      )
+    })
+  }, [profiles, userQuery, userDays, userStatus])
+
+  const statusCounts = useMemo(() => {
+    let pendente = 0
+    let ativo = 0
+    for (const p of profiles) {
+      if (p.active === false) pendente += 1
+      else ativo += 1
+    }
+    return { todos: profiles.length, pendente, ativo }
+  }, [profiles])
+
+  const allFilteredSelected =
+    filteredProfiles.length > 0 &&
+    filteredProfiles.every((p) => selectedUserIds.has(p.id))
+
+  function toggleUserSelected(id: string) {
+    setSelectedUserIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleAllFilteredUsers() {
+    setSelectedUserIds((prev) => {
+      const next = new Set(prev)
+      if (allFilteredSelected) {
+        for (const p of filteredProfiles) next.delete(p.id)
+      } else {
+        for (const p of filteredProfiles) next.add(p.id)
+      }
+      return next
+    })
+  }
+
+  async function applyBulkAction(action: BulkAction) {
+    const ids = [...selectedUserIds]
+    if (ids.length === 0) {
+      setError('Selecione ao menos um usuário.')
+      return
+    }
+    setBulkWorking(true)
+    setError(null)
+    try {
+      const results = await Promise.allSettled(
+        ids.map((user_id) => {
+          if (action === 'activate') {
+            return manageUser({ action: 'update', user_id, active: true })
+          }
+          if (action === 'inactivate') {
+            return manageUser({ action: 'update', user_id, active: false })
+          }
+          return manageUser({ action: 'delete', user_id, hard: false })
+        }),
+      )
+      const ok = results.filter((r) => r.status === 'fulfilled').length
+      const fail = results.length - ok
+      const label =
+        action === 'activate'
+          ? 'ativado(s)'
+          : action === 'inactivate'
+            ? 'inativado(s)'
+            : 'desativado(s)'
+      setFlash(
+        fail
+          ? `${ok} ${label}, ${fail} falha(s).`
+          : `${ok} usuário(s) ${label}.`,
+      )
+      setSelectedUserIds(new Set())
+      await load()
+      setTimeout(() => setFlash(null), 3500)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha na ação em massa')
+    } finally {
+      setBulkWorking(false)
+    }
+  }
+
+  async function setProfileActive(p: Profile, active: boolean) {
+    setSaving(true)
+    setError(null)
+    try {
+      await manageUser({ action: 'update', user_id: p.id, active })
+      setFlash(active ? `${p.full_name} ativado` : `${p.full_name} inativado`)
+      await load()
+      setTimeout(() => setFlash(null), 2500)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao atualizar status')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function softDeleteProfile(p: Profile) {
+    if (!window.confirm(`Desativar acesso de ${p.full_name || p.email}?`)) return
+    setSaving(true)
+    setError(null)
+    try {
+      await manageUser({ action: 'delete', user_id: p.id, hard: false })
+      setFlash(`${p.full_name || p.email} desativado`)
+      await load()
+      setTimeout(() => setFlash(null), 2500)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao desativar')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   function openCreateUser() {
     setFormName('')
     setFormEmail('')
-    setFormPassword('')
     setFormRole('consultor')
     setFormActive(true)
+    setFormMenu({ ...DEFAULT_CONSULTOR_MENU_ACCESS })
     setUserForm({ mode: 'create' })
   }
 
   function openEditUser(p: Profile) {
     setFormName(p.full_name || '')
     setFormEmail(p.email || '')
-    setFormPassword('')
     setFormRole((p.role as ProfileRole) || 'consultor')
     setFormActive(p.active !== false)
+    setFormMenu(
+      normalizeMenuAccess(
+        p.menu_access,
+        (p.role as ProfileRole) || 'consultor',
+      ),
+    )
     setUserForm({ mode: 'edit', profile: p })
+  }
+
+  function patchMenu(key: MenuAccessKey, value: boolean) {
+    setFormMenu((prev) => {
+      const next = { ...prev, [key]: value }
+      if (key === 'plataforma') next.plataforma = false
+      return next
+    })
   }
 
   async function saveUser() {
@@ -210,15 +388,20 @@ export function PlatformPage() {
     setSaving(true)
     setError(null)
     try {
+      const menu =
+        formRole === 'owner'
+          ? FULL_OWNER_MENU_ACCESS
+          : { ...formMenu, plataforma: false }
+
       if (userForm.mode === 'create') {
         await manageUser({
           action: 'create',
           email: formEmail,
-          password: formPassword,
           full_name: formName,
           role: formRole,
+          menu_access: menu,
         })
-        setFlash('Usuário criado')
+        setFlash('Usuário criado (pendente) — ative quando for aprovar')
       } else if (userForm.profile) {
         await manageUser({
           action: 'update',
@@ -226,6 +409,7 @@ export function PlatformPage() {
           full_name: formName,
           role: formRole,
           active: formActive,
+          menu_access: menu,
         })
         setFlash('Usuário atualizado')
       }
@@ -281,6 +465,29 @@ export function PlatformPage() {
 
   const userColumns: DataColumn<Profile>[] = [
     {
+      key: 'sel',
+      className: 'w-10',
+      label: (
+        <input
+          type="checkbox"
+          checked={allFilteredSelected}
+          onChange={toggleAllFilteredUsers}
+          aria-label="Selecionar todos filtrados"
+          className="h-4 w-4 rounded border-zinc-300"
+        />
+      ),
+      render: (r) => (
+        <input
+          type="checkbox"
+          checked={selectedUserIds.has(r.id)}
+          onClick={(e) => e.stopPropagation()}
+          onChange={() => toggleUserSelected(r.id)}
+          aria-label={`Selecionar ${r.full_name || r.email}`}
+          className="h-4 w-4 rounded border-zinc-300"
+        />
+      ),
+    },
+    {
       key: 'id',
       label: 'ID',
       render: (r) => <UuidBadge value={r.id} hint="user_id" />,
@@ -296,26 +503,67 @@ export function PlatformPage() {
     {
       key: 'role',
       label: 'Cargo',
-      render: (r) => (
-        <span className="rounded-full bg-liqui-orange-soft px-2 py-0.5 text-[10px] font-bold uppercase text-liqui-navy">
-          {roleLabel(r.role)}
-        </span>
-      ),
+      render: (r) => <RoleBadge role={r.role} />,
     },
     {
       key: 'active',
       label: 'Status',
       render: (r) =>
         r.active === false ? (
-          <span className="text-xs font-semibold text-amber-600">Pendente</span>
+          <span className="text-xs font-semibold text-amber-700">Pendente</span>
         ) : (
-          <span className="text-xs font-semibold text-emerald-600">Ativo</span>
+          <span className="text-xs font-semibold text-liqui-navy">Ativo</span>
         ),
     },
     {
       key: 'created_at',
       label: 'Criado',
       render: (r) => formatDateTimeBr(r.created_at),
+    },
+    {
+      key: 'acoes',
+      label: 'Ações',
+      render: (r) => (
+        <div
+          className="flex flex-wrap gap-1"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={() => openEditUser(r)}
+            className="rounded-lg border border-zinc-200 px-2 py-1 text-[11px] font-semibold text-zinc-600 hover:bg-zinc-50"
+          >
+            Editar
+          </button>
+          {r.active === false ? (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => void setProfileActive(r, true)}
+              className="rounded-lg bg-liqui-navy px-2 py-1 text-[11px] font-bold text-white disabled:opacity-50"
+            >
+              Ativar
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => void setProfileActive(r, false)}
+              className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800 disabled:opacity-50"
+            >
+              Inativar
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => void softDeleteProfile(r)}
+            className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-semibold text-red-600 disabled:opacity-50"
+          >
+            Excluir
+          </button>
+        </div>
+      ),
     },
   ]
 
@@ -325,6 +573,47 @@ export function PlatformPage() {
     { id: 'indexacoes', label: 'Indexações' },
     { id: 'modelos', label: 'Modelos' },
   ]
+
+  const usersFiltersBar = (
+    <div className="flex shrink-0 flex-wrap items-center gap-2">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
+        <input
+          value={userQuery}
+          onChange={(e) => setUserQuery(e.target.value)}
+          placeholder="Buscar nome ou e-mail…"
+          className="w-[200px] rounded-full border border-zinc-200 bg-white py-1.5 pl-8 pr-3 text-xs outline-none focus:border-liqui-orange lg:w-[240px]"
+        />
+      </div>
+      <div className="inline-flex rounded-full bg-zinc-200/70 p-0.5">
+        {(
+          [
+            { id: 'todos' as const, label: 'Todos' },
+            { id: 'pendente' as const, label: 'Pendentes' },
+            { id: 'ativo' as const, label: 'Ativos' },
+          ] as const
+        ).map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => setUserStatus(opt.id)}
+            className={`rounded-full px-2.5 py-1.5 text-xs font-semibold transition ${
+              userStatus === opt.id
+                ? 'bg-white text-liqui-navy shadow-sm'
+                : 'text-zinc-600 hover:text-liqui-navy'
+            }`}
+          >
+            {opt.label} ({statusCounts[opt.id]})
+          </button>
+        ))}
+      </div>
+      <DateRangePills value={userDays} onChange={setUserDays} />
+      <span className="text-xs text-zinc-500">
+        {selectedUserIds.size} selecionado(s) · {filteredProfiles.length} na
+        lista
+      </span>
+    </div>
+  )
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -420,7 +709,7 @@ export function PlatformPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            {(tab === 'usuarios' || tab === 'visao') && (
+            {tab === 'usuarios' && (
               <div className="flex rounded-xl bg-white p-1 shadow-sm ring-1 ring-zinc-200">
                 <button
                   type="button"
@@ -447,14 +736,44 @@ export function PlatformPage() {
               </div>
             )}
             {tab === 'usuarios' && (
-              <button
-                type="button"
-                onClick={openCreateUser}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-liqui-navy px-3 py-2 text-sm font-bold text-white"
-              >
-                <Plus className="h-4 w-4 text-liqui-orange" />
-                Novo consultor
-              </button>
+              <>
+                <div className="flex rounded-xl bg-white p-1 shadow-sm ring-1 ring-zinc-200">
+                  <button
+                    type="button"
+                    disabled={bulkWorking || selectedUserIds.size === 0}
+                    onClick={() => void applyBulkAction('activate')}
+                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold text-liqui-navy disabled:opacity-40 hover:bg-zinc-50"
+                    title="Ativar selecionados"
+                  >
+                    <UserCheck className="h-3.5 w-3.5 text-liqui-orange" />
+                    Ativar
+                    {selectedUserIds.size > 0
+                      ? ` (${selectedUserIds.size})`
+                      : ''}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={bulkWorking || selectedUserIds.size === 0}
+                    onClick={() => void applyBulkAction('inactivate')}
+                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold text-liqui-navy disabled:opacity-40 hover:bg-zinc-50"
+                    title="Inativar selecionados"
+                  >
+                    <UserMinus className="h-3.5 w-3.5 text-liqui-orange" />
+                    Inativar
+                    {selectedUserIds.size > 0
+                      ? ` (${selectedUserIds.size})`
+                      : ''}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={openCreateUser}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-liqui-navy px-3 py-2 text-sm font-bold text-white"
+                >
+                  <Plus className="h-4 w-4 text-liqui-orange" />
+                  Conta excepcional
+                </button>
+              </>
             )}
             {tab === 'indexacoes' && (
               <button
@@ -472,18 +791,7 @@ export function PlatformPage() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto p-5">
-        {tab === 'visao' &&
-          (view === 'tabela' ? (
-            <div className="min-h-[360px]">
-              <DataTable
-                columns={userColumns}
-                rows={profiles}
-                rowKey={(r) => r.id}
-                onRowClick={openEditUser}
-                emptyMessage="Nenhum usuário"
-              />
-            </div>
-          ) : (
+        {tab === 'visao' && (
           <div className="grid gap-4 lg:grid-cols-2">
             <section className="rounded-2xl border border-zinc-200 bg-liqui-navy p-5 text-white shadow-sm">
               <div className="mb-4 flex items-center gap-2">
@@ -509,11 +817,18 @@ export function PlatformPage() {
                 label="Custo total IA"
                 value={formatUsd(geminiCost + mistralCost)}
                 max={100}
-                pct={Math.min(
-                  100,
-                  (geminiCost + mistralCost) * 200,
-                )}
+                pct={Math.min(100, (geminiCost + mistralCost) * 200)}
               />
+              <button
+                type="button"
+                onClick={() => {
+                  setTab('usuarios')
+                  setView('tabela')
+                }}
+                className="mt-3 w-full rounded-xl bg-white/10 px-3 py-2 text-sm font-bold text-white hover:bg-white/15"
+              >
+                Ir para gerenciamento de usuários
+              </button>
             </section>
 
             <section className="rounded-2xl border border-zinc-200 bg-liqui-navy p-5 text-white shadow-sm">
@@ -543,67 +858,127 @@ export function PlatformPage() {
               ))}
             </section>
           </div>
-          ))}
+        )}
 
         {tab === 'usuarios' && (
           <div className="flex h-full min-h-[360px] flex-col gap-3">
             <p className="text-sm text-zinc-500">
-              Cadastros públicos ficam <strong>pendentes</strong> até você
-              ativar e definir o cargo (<strong>owner</strong> ou{' '}
-              <strong>consultor</strong>). Só owner vê esta aba.
+              Consultores se cadastram sozinhos (e-mail/senha). Aqui o owner{' '}
+              <strong>aprova</strong>, define <strong>menus</strong> e pode
+              inativar/excluir.
             </p>
+            {usersFiltersBar}
             {view === 'tabela' ? (
               <div className="min-h-0 flex-1">
                 <DataTable
                   columns={userColumns}
-                  rows={profiles}
+                  rows={filteredProfiles}
                   rowKey={(r) => r.id}
                   onRowClick={openEditUser}
-                  emptyMessage="Nenhum usuário"
+                  rowClassName={(r) =>
+                    r.role === 'owner' ? 'bg-violet-50 hover:bg-violet-100/80' : undefined
+                  }
+                  emptyMessage={
+                    loading
+                      ? 'Carregando…'
+                      : userStatus === 'ativo'
+                        ? 'Nenhum usuário ativo. Vá em Pendentes, selecione e clique Ativar.'
+                        : userStatus === 'pendente'
+                          ? 'Nenhum cadastro pendente.'
+                          : 'Nenhum usuário no filtro'
+                  }
                 />
               </div>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {profiles.map((p) => (
-                  <button
+                {filteredProfiles.map((p) => (
+                  <div
                     key={p.id}
-                    type="button"
-                    onClick={() => openEditUser(p)}
-                    className="rounded-2xl border border-zinc-200 bg-white p-4 text-left shadow-sm transition hover:border-liqui-orange/40"
+                    className={`rounded-2xl border p-4 text-left shadow-sm transition hover:border-liqui-orange/40 ${
+                      p.role === 'owner'
+                        ? 'border-violet-200 bg-violet-50'
+                        : 'border-zinc-200 bg-white'
+                    }`}
                   >
                     <div className="flex items-start gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-liqui-navy text-xs font-bold text-white">
-                        {(p.full_name || p.email || '?')
-                          .slice(0, 2)
-                          .toUpperCase()}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-bold text-liqui-navy">
-                          {p.full_name}
-                        </p>
-                        <p className="truncate text-xs text-zinc-500">
-                          {p.email}
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          <span className="rounded-full bg-liqui-orange-soft px-2 py-0.5 text-[10px] font-bold uppercase text-liqui-navy">
-                            {roleLabel(p.role)}
-                          </span>
-                          {p.active === false ? (
-                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-700">
-                              Pendente
-                            </span>
-                          ) : (
-                            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-700">
-                              Ativo
-                            </span>
-                          )}
+                      <input
+                        type="checkbox"
+                        checked={selectedUserIds.has(p.id)}
+                        onChange={() => toggleUserSelected(p.id)}
+                        aria-label={`Selecionar ${p.full_name || p.email}`}
+                        className="mt-1 h-4 w-4 rounded border-zinc-300"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => openEditUser(p)}
+                        className="flex min-w-0 flex-1 items-start gap-3 text-left"
+                      >
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-liqui-navy text-xs font-bold text-white">
+                          {(p.full_name || p.email || '?')
+                            .slice(0, 2)
+                            .toUpperCase()}
                         </div>
-                      </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-bold text-liqui-navy">
+                            {p.full_name}
+                          </p>
+                          <p className="truncate text-xs text-zinc-500">
+                            {p.email}
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            <RoleBadge role={p.role} />
+                            {p.active === false ? (
+                              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-700">
+                                Pendente
+                              </span>
+                            ) : (
+                              <span className="rounded-full bg-liqui-navy/10 px-2 py-0.5 text-[10px] font-bold uppercase text-liqui-navy">
+                                Ativo
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </button>
                     </div>
-                  </button>
+                    <div className="mt-3 flex flex-wrap gap-1 border-t border-zinc-100 pt-3">
+                      {p.active === false ? (
+                        <button
+                          type="button"
+                          onClick={() => void setProfileActive(p, true)}
+                          className="rounded-lg bg-liqui-navy px-2 py-1 text-[11px] font-bold text-white"
+                        >
+                          Ativar
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void setProfileActive(p, false)}
+                          className="rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800"
+                        >
+                          Inativar
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => openEditUser(p)}
+                        className="rounded-lg border border-zinc-200 px-2 py-1 text-[11px] font-semibold text-zinc-600"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void softDeleteProfile(p)}
+                        className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-semibold text-red-600"
+                      >
+                        Excluir
+                      </button>
+                    </div>
+                  </div>
                 ))}
-                {profiles.length === 0 && !loading && (
-                  <p className="text-sm text-zinc-400">Nenhum perfil.</p>
+                {filteredProfiles.length === 0 && !loading && (
+                  <p className="text-sm text-zinc-400">
+                    Nenhum perfil no filtro.
+                  </p>
                 )}
               </div>
             )}
@@ -705,86 +1080,109 @@ export function PlatformPage() {
       </div>
 
       {userForm && (
-        <CrmEntitySideOver
+        <UserAccessSideOver
+          mode={userForm.mode}
           title={
-            userForm.mode === 'create' ? 'Novo usuário' : 'Editar usuário'
+            userForm.mode === 'create' ? 'Novo usuário' : 'Gerenciar acesso'
           }
-          subtitle="Consultores e acessos · perfis da plataforma"
-          isNew={userForm.mode === 'create'}
+          email={formEmail}
+          name={formName}
+          role={formRole}
+          active={formActive}
+          menuAccess={formMenu}
           saving={saving}
           onClose={() => setUserForm(null)}
           onSave={() => void saveUser()}
-          onDelete={
+          onDeleteSoft={
             userForm.mode === 'edit'
               ? () => void deleteUser(false)
               : undefined
           }
-        >
-          <div className="space-y-3">
-            <Field label="Nome" value={formName} onChange={setFormName} />
-            {userForm.mode === 'create' && (
-              <>
-                <Field
-                  label="E-mail"
-                  value={formEmail}
-                  onChange={setFormEmail}
-                  type="email"
-                />
-                <Field
-                  label="Senha inicial"
-                  value={formPassword}
-                  onChange={setFormPassword}
-                  type="password"
-                />
-              </>
-            )}
-            {userForm.mode === 'edit' && (
-              <p className="rounded-xl bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
-                {formEmail}
-              </p>
-            )}
-            <label className="block text-sm font-semibold text-liqui-navy">
-              Cargo
-              <select
-                value={formRole}
-                onChange={(e) => setFormRole(e.target.value as ProfileRole)}
-                className="mt-1.5 w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm outline-none focus:border-liqui-orange"
-              >
-                <option value="consultor">Consultor (vendas)</option>
-                <option value="owner">Owner (plataforma)</option>
-              </select>
-            </label>
-            {userForm.mode === 'edit' && (
-              <>
-                <label className="flex items-center gap-2 text-sm font-semibold text-liqui-navy">
-                  <input
-                    type="checkbox"
-                    checked={formActive}
-                    onChange={(e) => setFormActive(e.target.checked)}
-                    className="rounded border-zinc-300"
-                  />
-                  Conta ativa (libera acesso ao CRM)
-                </label>
-                <p className="text-xs text-zinc-500">
-                  Sem esta opção marcada, o usuário fica em “Acesso pendente”
-                  mesmo com e-mail confirmado.
-                </p>
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => void deleteUser(true)}
-                  className="w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-600"
-                >
-                  Excluir permanentemente do Auth
-                </button>
-                <p className="text-[11px] text-zinc-400">
-                  <strong>Excluir</strong> no rodapé desativa o acesso (soft
-                  delete). Remoção permanente apaga o login.
-                </p>
-              </>
-            )}
-          </div>
-        </CrmEntitySideOver>
+          onHardDelete={
+            userForm.mode === 'edit'
+              ? () => void deleteUser(true)
+              : undefined
+          }
+          onChangeName={setFormName}
+          onChangeEmail={
+            userForm.mode === 'create' ? setFormEmail : undefined
+          }
+          onChangeRole={(role) => {
+            setFormRole(role)
+            setFormMenu(
+              role === 'owner'
+                ? { ...FULL_OWNER_MENU_ACCESS }
+                : { ...DEFAULT_CONSULTOR_MENU_ACCESS },
+            )
+          }}
+          onChangeActive={setFormActive}
+          onChangeMenu={patchMenu}
+          onActivateNow={
+            userForm.profile
+              ? () => {
+                  void (async () => {
+                    if (!userForm.profile) return
+                    setSaving(true)
+                    setError(null)
+                    try {
+                      const menu =
+                        formRole === 'owner'
+                          ? FULL_OWNER_MENU_ACCESS
+                          : { ...formMenu, plataforma: false }
+                      await manageUser({
+                        action: 'update',
+                        user_id: userForm.profile.id,
+                        full_name: formName,
+                        role: formRole,
+                        active: true,
+                        menu_access: menu,
+                      })
+                      setFlash(`${formName || formEmail} ativado`)
+                      setUserForm(null)
+                      await load()
+                    } catch (err) {
+                      setError(
+                        err instanceof Error
+                          ? err.message
+                          : 'Falha ao ativar',
+                      )
+                    } finally {
+                      setSaving(false)
+                    }
+                  })()
+                }
+              : undefined
+          }
+          onInactivateNow={
+            userForm.profile
+              ? () => {
+                  void (async () => {
+                    if (!userForm.profile) return
+                    setSaving(true)
+                    setError(null)
+                    try {
+                      await manageUser({
+                        action: 'update',
+                        user_id: userForm.profile.id,
+                        active: false,
+                      })
+                      setFlash(`${formName || formEmail} inativado`)
+                      setUserForm(null)
+                      await load()
+                    } catch (err) {
+                      setError(
+                        err instanceof Error
+                          ? err.message
+                          : 'Falha ao inativar',
+                      )
+                    } finally {
+                      setSaving(false)
+                    }
+                  })()
+                }
+              : undefined
+          }
+        />
       )}
 
       {jobDetail && (

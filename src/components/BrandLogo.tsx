@@ -5,23 +5,38 @@ export const LIQUI_LOGO_URL =
 type BrandLogoProps = {
   className?: string
   size?: 'sm' | 'md' | 'lg'
+  /** Cantos uniformes. Default 15px. */
+  rounded?: number | string
+  /** Centraliza a imagem no espaço disponível */
+  centered?: boolean
 }
 
 const sizes = {
-  sm: 'h-16 w-auto',
-  md: 'h-[4.5rem] w-auto',
-  lg: 'h-24 w-full max-w-[220px]',
+  sm: 'h-11 w-auto max-w-[160px]',
+  md: 'h-14 w-auto max-w-[190px]',
+  lg: 'h-16 w-auto max-w-[210px]',
 }
 
-/** Logo em destaque — só a imagem, border-radius 20px à esquerda (marca LIQUI) */
-export function BrandLogo({ className = '', size = 'lg' }: BrandLogoProps) {
+/** Logo LIQUI — menor, border-radius 15px em todos os cantos */
+export function BrandLogo({
+  className = '',
+  size = 'md',
+  rounded = 15,
+  centered = false,
+}: BrandLogoProps) {
+  const radius = typeof rounded === 'number' ? `${rounded}px` : rounded
   return (
     <img
       src={LIQUI_LOGO_URL}
       alt="LIQUI"
-      className={`block object-contain object-left ${sizes[size]} ${className}`}
+      className={[
+        'block object-contain',
+        centered ? 'mx-auto object-center' : 'object-center',
+        sizes[size],
+        className,
+      ].join(' ')}
       style={{
-        borderRadius: '20px 0 0 20px',
+        borderRadius: radius,
       }}
     />
   )

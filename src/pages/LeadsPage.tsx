@@ -43,7 +43,7 @@ const STAGE_ICONS = [Mail, Phone, Star, Trophy, Layers3]
 
 export function LeadsPage() {
   const { setHeader } = useShellHeader()
-  const { isOwner } = useAuth()
+  const { isOwner, isConsultor } = useAuth()
   const [leads, setLeads] = useState<Lead[]>([])
   const [tentativas, setTentativas] = useState<TentativaCompra[]>([])
   const [respostas, setRespostas] = useState<RespostaPesquisa[]>([])
@@ -120,8 +120,10 @@ export function LeadsPage() {
 
   useEffect(() => {
     setHeader({
-      title: 'Leads',
-      subtitle: `Leads · ${leads.length} leads${saving ? ' · salvando…' : ''}`,
+      title: isConsultor ? 'Meus leads' : 'Leads',
+      subtitle: isConsultor
+        ? `Kanban · ${leads.length} lead(s) atribuído(s)${saving ? ' · salvando…' : ''}`
+        : `Leads · ${leads.length} leads${saving ? ' · salvando…' : ''}`,
       actions: (
         <button
           type="button"
@@ -133,7 +135,7 @@ export function LeadsPage() {
         </button>
       ),
     })
-  }, [leads.length, saving, setHeader])
+  }, [leads.length, saving, setHeader, isConsultor])
 
   async function switchPipeline(id: string) {
     setPipelineId(id)

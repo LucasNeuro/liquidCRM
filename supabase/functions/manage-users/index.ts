@@ -62,15 +62,16 @@ Deno.serve(async (req) => {
 
     if (action === 'create') {
       const email = String(body.email || '').trim().toLowerCase()
-      const password = String(body.password || '')
+      let password = String(body.password || '')
       const full_name =
         String(body.full_name || '').trim() || email.split('@')[0]
       const role = String(body.role || 'consultor')
-      if (!email || password.length < 6) {
-        return jsonResponse(
-          { error: 'E-mail e senha (mín. 6) obrigatórios' },
-          400,
-        )
+      if (!email) {
+        return jsonResponse({ error: 'E-mail obrigatório' }, 400)
+      }
+      if (password.length < 6) {
+        // Conta excepcional: senha aleatória (fluxo normal = auto-cadastro)
+        password = crypto.randomUUID().replace(/-/g, '') + 'Aa1!'
       }
       if (role !== 'owner' && role !== 'consultor') {
         return jsonResponse(
@@ -89,12 +90,35 @@ Deno.serve(async (req) => {
 
       const userId = data.user?.id
       if (userId) {
+        const menu_access =
+          body.menu_access && typeof body.menu_access === 'object'
+            ? body.menu_access
+            : {
+                dashboard: false,
+                leads: true,
+                tentativas: false,
+                pesquisas: false,
+                negocios: true,
+                distribuicao: false,
+                plataforma: false,
+              }
+        if (role === 'consultor') {
+          ;(menu_access as Record<string, boolean>).plataforma = false
+          ;(menu_access as Record<string, boolean>).dashboard = false
+          ;(menu_access as Record<string, boolean>).tentativas = false
+          ;(menu_access as Record<string, boolean>).pesquisas = false
+          ;(menu_access as Record<string, boolean>).distribuicao = false
+          ;(menu_access as Record<string, boolean>).leads = true
+          ;(menu_access as Record<string, boolean>).negocios = true
+        }
         await admin.from('profiles').upsert({
           id: userId,
           email,
           full_name,
           role,
+          // Consultor já entra ativo, mas só com Leads + Negócios no menu
           active: true,
+          menu_access,
         })
       }
       return jsonResponse({ ok: true, user: data.user })
@@ -116,10 +140,32 @@ Deno.serve(async (req) => {
         patch.role = role
       }
       if (body.active != null) patch.active = Boolean(body.active)
-      const { error } = await admin
+      if (body.menu_access != null && typeof body.menu_access === 'object') {
+        const ma = { ...(body.menu_access as Record<string, unknown>) }
+        const roleForPatch = String(
+          patch.role ?? body.role_hint ?? 'consultor',
+        )
+        if (roleForPatch !== 'owner') ma.plataforma = false
+        patch.menu_access = ma
+      }
+      let { error } = await admin
         .from('profiles')
         .update(patch)
         .eq('id', user_id)
+
+      // Se a coluna menu_access ainda não existe, salva o resto (active/role)
+      if (
+        error &&
+        patch.menu_access != null &&
+        /menu_access|column/i.test(error.message)
+      ) {
+        const { menu_access: _drop, ...rest } = patch
+        const retry = await admin
+          .from('profiles')
+          .update(rest)
+          .eq('id', user_id)
+        error = retry.error
+      }
       if (error) throw new Error(error.message)
       return jsonResponse({ ok: true })
     }

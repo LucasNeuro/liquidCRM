@@ -14,6 +14,8 @@ export type Lead = {
   pipeline_id?: string | null
   stage_id?: string | null
   archived_at?: string | null
+  /** Consultor responsável (profiles.id) */
+  assigned_to?: string | null
 }
 
 export type TentativaCompra = {

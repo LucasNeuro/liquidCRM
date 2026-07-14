@@ -1,11 +1,14 @@
 import { Link } from 'react-router-dom'
 import type { ReactNode } from 'react'
+import { ArrowLeft } from 'lucide-react'
 import { BrandLogo } from './BrandLogo'
 
 type AuthShellProps = {
   title: string
   subtitle: string
   children: ReactNode
+  /** Só na tela de cadastro (botão para voltar ao login). */
+  showBack?: boolean
   backTo?: string
   backLabel?: string
 }
@@ -14,24 +17,31 @@ export function AuthShell({
   title,
   subtitle,
   children,
-  backTo = '/',
+  showBack = false,
+  backTo = '/login',
   backLabel = 'Voltar',
 }: AuthShellProps) {
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
       <section className="relative flex flex-col bg-white px-6 py-8 sm:px-10 lg:px-14">
-        <header className="flex items-center justify-between">
-          <BrandLogo size="lg" />
-          <Link
-            to={backTo}
-            className="text-sm font-medium text-liqui-muted transition hover:text-liqui-navy"
-          >
-            {backLabel}
-          </Link>
-        </header>
+        <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center py-10">
+          <div className="mb-8 flex w-full justify-center">
+            <BrandLogo size="lg" rounded={15} centered />
+          </div>
 
-        <div className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center py-12">
           {children}
+
+          {showBack && (
+            <div className="mt-10 flex w-full justify-center">
+              <Link
+                to={backTo}
+                className="inline-flex items-center gap-2 rounded-[15px] border border-zinc-200 bg-white px-5 py-2.5 text-sm font-semibold text-liqui-navy shadow-sm transition hover:border-liqui-orange/40 hover:bg-zinc-50"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                {backLabel}
+              </Link>
+            </div>
+          )}
         </div>
       </section>
 

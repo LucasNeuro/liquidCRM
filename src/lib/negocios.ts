@@ -30,7 +30,7 @@ export async function fetchNegociosByLead(idLead: number) {
   const { data, error } = await supabase
     .from('negocios')
     .select('*')
-    .eq('id_lead', idLead)
+    .eq('id_lead', Number(idLead))
     .is('archived_at', null)
     .order('created_at', { ascending: false })
   if (error) {
@@ -38,7 +38,7 @@ export async function fetchNegociosByLead(idLead: number) {
       const fallback = await supabase
         .from('negocios')
         .select('*')
-        .eq('id_lead', idLead)
+        .eq('id_lead', Number(idLead))
         .order('created_at', { ascending: false })
       if (fallback.error) throw new Error(fallback.error.message)
       return (fallback.data ?? []) as Negocio[]

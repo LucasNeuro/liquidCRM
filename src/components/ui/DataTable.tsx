@@ -1,9 +1,9 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 
 export type DataColumn<T> = {
   key: string
-  label: string
+  label: ReactNode
   render?: (row: T) => ReactNode
   className?: string
 }
@@ -13,6 +13,7 @@ type Props<T> = {
   rows: T[]
   rowKey: (row: T) => string | number
   onRowClick?: (row: T) => void
+  rowClassName?: (row: T) => string | undefined
   pageSize?: number
   emptyMessage?: string
 }
@@ -22,11 +23,16 @@ export function DataTable<T>({
   rows,
   rowKey,
   onRowClick,
+  rowClassName,
   pageSize = 20,
   emptyMessage = 'Nenhum registro',
 }: Props<T>) {
   const [page, setPage] = useState(1)
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize))
+
+  useEffect(() => {
+    setPage(1)
+  }, [rows.length, pageSize])
 
   const pageRows = useMemo(() => {
     const safe = Math.min(page, totalPages)
@@ -63,13 +69,15 @@ export function DataTable<T>({
                 </td>
               </tr>
             ) : (
-              pageRows.map((row) => (
+              pageRows.map((row) => {
+                const custom = rowClassName?.(row)
+                return (
                 <tr
                   key={rowKey(row)}
                   onClick={() => onRowClick?.(row)}
-                  className={`border-t border-zinc-100 ${
+                  className={`border-t border-zinc-100 ${custom || ''} ${
                     onRowClick
-                      ? 'cursor-pointer hover:bg-liqui-orange-soft/40'
+                      ? `cursor-pointer ${custom ? '' : 'hover:bg-liqui-orange-soft/40'}`
                       : ''
                   }`}
                 >
@@ -88,7 +96,8 @@ export function DataTable<T>({
                     </td>
                   ))}
                 </tr>
-              ))
+                )
+              })
             )}
           </tbody>
         </table>

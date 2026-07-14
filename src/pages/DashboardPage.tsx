@@ -47,7 +47,7 @@ function isToday(iso: string | null | undefined) {
 }
 
 export function DashboardPage() {
-  const { user, isOwner } = useAuth()
+  const { isOwner } = useAuth()
   const { setHeader } = useShellHeader()
   const [proxyOk, setProxyOk] = useState<boolean | null>(null)
   const [tab, setTab] = useState<DashTab>('visao')
@@ -447,15 +447,9 @@ export function DashboardPage() {
                 <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
                   <div className="flex items-center gap-2">
                     <IconBubble icon={Sparkles} size="sm" tone="soft" />
-                    <div>
-                      <p className="text-sm font-extrabold text-liqui-navy">
-                        Hub de IA
-                      </p>
-                      <p className="text-xs text-zinc-500">
-                        {user?.email} · Gemini + Mistral ·{' '}
-                        {proxyOk ? 'online' : 'checar gateway'}
-                      </p>
-                    </div>
+                    <p className="text-sm font-extrabold text-liqui-navy">
+                      Hub de IA
+                    </p>
                   </div>
 
                   <div className="mt-4 grid gap-4 sm:grid-cols-2">

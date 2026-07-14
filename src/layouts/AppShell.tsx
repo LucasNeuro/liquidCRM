@@ -9,12 +9,13 @@ import {
   LayoutDashboard,
   LogOut,
   Shield,
-  Sparkles,
   Wrench,
 } from 'lucide-react'
 import { BrandLogo } from '../components/BrandLogo'
+import ErrorBoundary from '../components/ErrorBoundary'
 import { IconBubble } from '../components/ui/IconBubble'
 import { useAuth } from '../contexts/AuthContext'
+import { hasMenuAccess, type MenuAccessKey } from '../lib/menuAccess'
 import { ShellProvider, useShellHeader } from './ShellContext'
 
 type NavItem = {
@@ -22,6 +23,7 @@ type NavItem = {
   label: string
   icon: typeof LayoutDashboard
   end?: boolean
+  access: MenuAccessKey
 }
 
 type NavDrawer = {
@@ -30,7 +32,14 @@ type NavDrawer = {
   items: NavItem[]
 }
 
-const baseDrawers: NavDrawer[] = [
+function drawerHasActivePath(drawer: NavDrawer, pathname: string) {
+  return drawer.items.some((item) => {
+    if (item.end) return pathname === item.to
+    return pathname === item.to || pathname.startsWith(`${item.to}/`)
+  })
+}
+
+const ALL_NAV_DRAWERS: NavDrawer[] = [
   {
     id: 'insights',
     label: 'Insights',
@@ -40,37 +49,60 @@ const baseDrawers: NavDrawer[] = [
         label: 'Dashboard & Relatórios',
         icon: LayoutDashboard,
         end: true,
+        access: 'dashboard',
       },
     ],
-  },
-  {
-    id: 'ia',
-    label: 'IA',
-    items: [{ to: '/leads', label: 'Pipeline IA', icon: Sparkles }],
   },
   {
     id: 'vendas',
     label: 'Vendas',
     items: [
-      { to: '/leads', label: 'Leads', icon: Columns3 },
-      { to: '/tentativas', label: 'Tentativas', icon: CreditCard },
-      { to: '/pesquisas', label: 'Pesquisas', icon: ClipboardList },
-      { to: '/negocios', label: 'Negócios', icon: BriefcaseBusiness },
+      { to: '/leads', label: 'Leads', icon: Columns3, access: 'leads' },
+      {
+        to: '/tentativas',
+        label: 'Tentativas',
+        icon: CreditCard,
+        access: 'tentativas',
+      },
+      {
+        to: '/pesquisas',
+        label: 'Pesquisas',
+        icon: ClipboardList,
+        access: 'pesquisas',
+      },
+      {
+        to: '/negocios',
+        label: 'Negócios',
+        icon: BriefcaseBusiness,
+        access: 'negocios',
+      },
     ],
   },
   {
     id: 'operacao',
     label: 'Operação',
-    items: [],
+    items: [
+      {
+        to: '/operacao/distribuicao',
+        label: 'Distribuição',
+        icon: Wrench,
+        access: 'distribuicao',
+      },
+    ],
+  },
+  {
+    id: 'plataforma',
+    label: 'Plataforma',
+    items: [
+      {
+        to: '/plataforma',
+        label: 'Acesso Owner',
+        icon: Shield,
+        access: 'plataforma',
+      },
+    ],
   },
 ]
-
-function drawerHasActivePath(drawer: NavDrawer, pathname: string) {
-  return drawer.items.some((item) => {
-    if (item.end) return pathname === item.to
-    return pathname === item.to || pathname.startsWith(`${item.to}/`)
-  })
-}
 
 function ShellChrome() {
   const { user, profile, isOwner, signOut } = useAuth()
@@ -78,18 +110,15 @@ function ShellChrome() {
   const { pathname } = useLocation()
 
   const navDrawers = useMemo(() => {
-    const drawers = [...baseDrawers]
-    if (isOwner) {
-      drawers.push({
-        id: 'plataforma',
-        label: 'Plataforma',
-        items: [
-          { to: '/plataforma', label: 'Acesso Owner', icon: Shield },
-        ],
-      })
-    }
-    return drawers
-  }, [isOwner])
+    const role = profile?.role
+    const menu = profile?.menu_access
+    return ALL_NAV_DRAWERS.map((drawer) => ({
+      ...drawer,
+      items: drawer.items.filter((item) =>
+        hasMenuAccess(menu, item.access, role),
+      ),
+    })).filter((d) => d.items.length > 0)
+  }, [profile?.menu_access, profile?.role])
 
   const initiallyOpen = useMemo(() => {
     const open = new Set<string>()
@@ -138,8 +167,8 @@ function ShellChrome() {
   return (
     <div className="h-screen overflow-hidden bg-[#f3f4f6]">
       <aside className="fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col border-r border-zinc-200 bg-white">
-        <div className="shrink-0 border-b border-zinc-100 px-3 py-5">
-          <BrandLogo size="lg" className="w-full max-w-none" />
+        <div className="flex shrink-0 justify-center border-b border-zinc-100 px-3 py-4">
+          <BrandLogo size="md" rounded={15} centered className="max-w-[168px]" />
         </div>
 
         <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-3">
@@ -249,7 +278,9 @@ function ShellChrome() {
         </header>
 
         <main className="min-h-0 flex-1 overflow-hidden bg-[#f3f4f6]">
-          <Outlet />
+          <ErrorBoundary name="shell-outlet" fallbackTitle="Erro nesta área">
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

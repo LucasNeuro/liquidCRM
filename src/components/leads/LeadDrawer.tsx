@@ -46,6 +46,7 @@ import { GeminiIcon } from '../ui/LlmIcons'
 import { MarkdownViewer } from '../ui/MarkdownViewer'
 import { Modal } from '../ui/Modal'
 import { SideOver } from '../ui/SideOver'
+import { prettifyInsightMarkdown } from '../../lib/insightReadable'
 
 type LeadDrawerProps = {
   lead: Lead
@@ -67,6 +68,12 @@ export function LeadDrawer({
   const [lead, setLead] = useState(leadProp)
   const relatedTentativas = matchTentativasDetailed(lead, tentativas)
   const relatedRespostas = matchRespostasDetailed(lead, respostas)
+  const vinculoWays = Array.from(
+    new Set([
+      ...relatedTentativas.map((t) => matchLabel(t.match_by)),
+      ...relatedRespostas.map((r) => matchLabel(r.match_by)),
+    ]),
+  )
   const [tab, setTab] = useState<TabId>('negocios')
   const [insight, setInsight] = useState<LeadInsight | null>(null)
   const [lastRagChunks, setLastRagChunks] = useState<number | null>(null)
@@ -202,15 +209,16 @@ export function LeadDrawer({
   }
 
   async function handleCopyInsight(item: LeadInsight) {
-    const text =
+    const text = prettifyInsightMarkdown(
       item.markdown?.trim() ||
-      [
-        item.titulo || 'Insight',
-        '',
-        item.resumo,
-        '',
-        `Próximo passo: ${item.proximo_passo}`,
-      ].join('\n')
+        [
+          item.titulo || 'Insight',
+          '',
+          item.resumo,
+          '',
+          `Próximo passo: ${item.proximo_passo}`,
+        ].join('\n'),
+    )
     try {
       await navigator.clipboard.writeText(text)
       setCopyFlash('Insight copiado')
@@ -604,14 +612,24 @@ export function LeadDrawer({
                     Insight por IA
                   </h3>
                   <p className="mt-1 text-xs text-zinc-600">
-                    Cruzamento: lead · {relatedTentativas.length} tentativa(s) ·{' '}
+                    Cruzamento: {relatedTentativas.length} tentativa(s) ·{' '}
                     {relatedRespostas.length} pesquisa(s) · {negocios.length}{' '}
                     negócio(s)
                     {lastRagChunks != null
-                      ? ` · ${lastRagChunks} trecho(s) RAG`
+                      ? ` · ${lastRagChunks} RAG`
                       : ''}
                     .
                   </p>
+                  {vinculoWays.length > 0 ? (
+                    <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                      Vínculo: {vinculoWays.join(' · ')}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-[10px] text-amber-700">
+                      Sem vínculo automático com pesquisas/tentativas (confira
+                      e-mail, telefone ou id_lead na base).
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -756,7 +774,11 @@ export function LeadDrawer({
             </div>
           }
         >
-          <MarkdownViewer markdown={viewing.markdown || viewing.resumo} />
+          <MarkdownViewer
+            markdown={prettifyInsightMarkdown(
+              viewing.markdown || viewing.resumo,
+            )}
+          />
         </Modal>
       )}
 
