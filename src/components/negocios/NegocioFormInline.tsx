@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { Plus } from 'lucide-react'
 import { createNegocio } from '../../lib/negocios'
 import type { PipelineStage } from '../../lib/pipelines'
 
