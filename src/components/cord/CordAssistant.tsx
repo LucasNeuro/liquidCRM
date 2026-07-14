@@ -174,6 +174,10 @@ export function CordAssistant() {
         setPendingAction(null)
         setProposeRedistribute(false)
         emitCrmChanged({ source: 'cord', reason: 'critical-action' })
+        // Forçar atualização do snapshot do CRM após ação crítica
+        if (res.action_result) {
+          window.location.reload()
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha no CORD')
