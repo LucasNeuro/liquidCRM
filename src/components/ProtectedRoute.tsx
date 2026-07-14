@@ -9,13 +9,36 @@ function AuthSpinner() {
   )
 }
 
+/** Sessão ok, mas precisa de active=true definido pelo owner */
 export function ProtectedRoute() {
-  const { session, loading } = useAuth()
+  const { session, loading, profile } = useAuth()
 
   if (loading) return <AuthSpinner />
 
   if (!session) {
     return <Navigate to="/login" replace />
+  }
+
+  // Sem profile ainda, ou desativado → aguarda liberação do owner
+  if (!profile || profile.active === false) {
+    return <Navigate to="/pendente" replace />
+  }
+
+  return <Outlet />
+}
+
+/** Página de espera — precisa estar logado */
+export function PendingRoute() {
+  const { session, loading, profile } = useAuth()
+
+  if (loading) return <AuthSpinner />
+
+  if (!session) {
+    return <Navigate to="/login" replace />
+  }
+
+  if (profile && profile.active !== false) {
+    return <Navigate to="/leads" replace />
   }
 
   return <Outlet />
@@ -35,7 +58,7 @@ export function OwnerRoute() {
 }
 
 export function PublicOnlyRoute() {
-  const { session, loading } = useAuth()
+  const { session, loading, profile } = useAuth()
 
   if (loading) {
     return (
@@ -46,6 +69,9 @@ export function PublicOnlyRoute() {
   }
 
   if (session) {
+    if (!profile || profile.active === false) {
+      return <Navigate to="/pendente" replace />
+    }
     return <Navigate to="/leads" replace />
   }
 

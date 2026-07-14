@@ -52,7 +52,7 @@ export function SignupPage() {
     }
 
     setInfo(
-      'Conta criada com sucesso. Se pedirmos confirmação, confira seu e-mail e depois faça login.',
+      'Conta criada. Confirme o e-mail se solicitado e faça login — o acesso só libera depois que o owner ativar sua conta e definir o cargo em Plataforma.',
     )
     setPassword('')
     setConfirm('')

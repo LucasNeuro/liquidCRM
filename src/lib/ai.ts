@@ -9,10 +9,8 @@ const LOCAL_AI_URL =
   import.meta.env.VITE_AI_PROXY_URL?.replace(/\/$/, '') ||
   'http://127.0.0.1:8787'
 
-/** Em dev, usa gateway local (GEMINI_API_KEY do .env). Em prod, Edge Functions. */
-const PREFER_LOCAL =
-  import.meta.env.DEV ||
-  import.meta.env.VITE_AI_PREFER_LOCAL === 'true'
+/** Prefer Edge (grava custos Gemini/Mistral). Local só com VITE_AI_PREFER_LOCAL=true. */
+const PREFER_LOCAL = import.meta.env.VITE_AI_PREFER_LOCAL === 'true'
 
 export type ClassificationResult = {
   intent: string
@@ -35,6 +33,10 @@ export type LeadInsightResult = {
   model_name: string
   raw_response?: unknown
   rag_chunks_used?: number
+  reinforced?: boolean
+  pipeline?: string
+  mistral_brief_used?: boolean
+  mistral_model?: string | null
 }
 
 type EdgeName = 'lead-insight' | 'lead-classify' | 'embed-crm-batch'
@@ -126,25 +128,21 @@ async function invokeFunction<T>(
 ): Promise<T> {
   const errors: string[] = []
 
-  if (PREFER_LOCAL) {
-    try {
-      return await callLocal<T>(localPath, body)
-    } catch (err) {
-      errors.push(err instanceof Error ? err.message : String(err))
+  const tryEdge = async () => {
+    if (!FUNCTIONS_BASE) {
+      throw new Error('URL das Edge Functions ausente')
     }
+    return callEdge<T>(name, body)
   }
+  const tryLocal = () => callLocal<T>(localPath, body)
 
-  if (FUNCTIONS_BASE) {
-    try {
-      return await callEdge<T>(name, body)
-    } catch (err) {
-      errors.push(err instanceof Error ? err.message : String(err))
-    }
-  }
+  const order = PREFER_LOCAL
+    ? [tryLocal, tryEdge]
+    : [tryEdge, tryLocal]
 
-  if (!PREFER_LOCAL) {
+  for (const run of order) {
     try {
-      return await callLocal<T>(localPath, body)
+      return await run()
     } catch (err) {
       errors.push(err instanceof Error ? err.message : String(err))
     }
@@ -165,11 +163,28 @@ export function classifyLead(input: { text: string; leadName?: string }) {
   )
 }
 
-/** Insight — agente lead-insight */
-export function generateLeadInsight(leadContext: unknown) {
+/** Insight — agente lead-insight (Gerar = Gemini; Aprofundar = Mistral RAG → Gemini) */
+export function generateLeadInsight(
+  leadContext: unknown,
+  options?: {
+    reinforce?: boolean
+    previousInsight?: {
+      titulo?: string | null
+      resumo: string
+      proximo_passo: string
+      riscos?: string[]
+      evidencias?: string[]
+      markdown?: string | null
+    }
+  },
+) {
   return invokeFunction<LeadInsightResult>(
     'lead-insight',
-    { leadContext },
+    {
+      leadContext,
+      reinforce: Boolean(options?.reinforce),
+      previousInsight: options?.previousInsight,
+    },
     '/ai/insight',
   )
 }

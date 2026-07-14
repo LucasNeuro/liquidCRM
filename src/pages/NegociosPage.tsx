@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { NegocioFormSideOver } from '../components/negocios/NegocioFormSideOver'
 import { NegocioKanbanCard } from '../components/negocios/NegocioKanbanCard'
+import { PipelineManagerSideOver } from '../components/crm/PipelineManagerSideOver'
 import { CrmEntitySideOver, Field } from '../components/ui/CrmEntitySideOver'
 import {
   FilterSelect,
@@ -17,12 +18,13 @@ import {
   uniqueOptions,
 } from '../components/ui/CrmFilters'
 import { DataTable, type DataColumn } from '../components/ui/DataTable'
-import { SideOver } from '../components/ui/SideOver'
+import { LeadIdBadge, NegocioIdBadge, UuidBadge } from '../components/ui/IdBadge'
+import { MetaInfo } from '../components/ui/MetaInfo'
 import { LeadAvatar } from '../components/ui/LeadAvatar'
 import { useShellHeader } from '../layouts/ShellContext'
+import { useAuth } from '../contexts/AuthContext'
+import { formatCellValue } from '../lib/format'
 import {
-  createPipeline,
-  createStage,
   fetchPipelines,
   fetchStages,
   type Pipeline,
@@ -49,6 +51,7 @@ function money(v: number) {
 
 export function NegociosPage() {
   const { setHeader } = useShellHeader()
+  const { isOwner } = useAuth()
   const [negocios, setNegocios] = useState<NegocioWithLead[]>([])
   const [pipelines, setPipelines] = useState<Pipeline[]>([])
   const [stages, setStages] = useState<PipelineStage[]>([])
@@ -63,10 +66,7 @@ export function NegociosPage() {
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
-  const [showPipelineModal, setShowPipelineModal] = useState(false)
-  const [showStageModal, setShowStageModal] = useState(false)
-  const [newPipelineName, setNewPipelineName] = useState('')
-  const [newStageName, setNewStageName] = useState('')
+  const [showPipelineManager, setShowPipelineManager] = useState(false)
   const [selected, setSelected] = useState<NegocioWithLead | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
 
@@ -263,32 +263,7 @@ export function NegociosPage() {
     }
   }
 
-  async function handleCreatePipeline() {
-    if (!newPipelineName.trim()) return
-    try {
-      const pipe = await createPipeline(newPipelineName.trim(), 'negocios')
-      setNewPipelineName('')
-      setShowPipelineModal(false)
-      await loadAll()
-      await switchPipeline(pipe.id)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao criar funil')
-    }
-  }
-
-  async function handleCreateStage() {
-    if (!newStageName.trim() || !pipelineId) return
-    try {
-      await createStage(pipelineId, newStageName.trim())
-      setNewStageName('')
-      setShowStageModal(false)
-      setStages(await fetchStages(pipelineId))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao criar estágio')
-    }
-  }
-
-  const cell = (v: unknown) => (v == null || v === '' ? '—' : String(v))
+  const cell = (v: unknown, key?: string) => formatCellValue(v, key)
 
   const negocioTableColumns: DataColumn<NegocioWithLead>[] = [
     {
@@ -301,15 +276,29 @@ export function NegociosPage() {
             <LeadAvatar name={leadName} size="sm" />
             <div>
               <p className="font-semibold text-liqui-navy">{n.titulo}</p>
-              <p className="text-[11px] text-zinc-400">{n.codigo || '—'}</p>
+              <div className="mt-0.5">
+                <NegocioIdBadge codigo={n.codigo} />
+              </div>
             </div>
           </div>
         )
       },
     },
-    { key: 'id', label: 'id', render: (n) => cell(n.id) },
-    { key: 'codigo', label: 'codigo', render: (n) => cell(n.codigo) },
-    { key: 'id_lead', label: 'id_lead', render: (n) => cell(n.id_lead) },
+    {
+      key: 'id',
+      label: 'id',
+      render: (n) => <UuidBadge value={n.id} hint="id" />,
+    },
+    {
+      key: 'codigo',
+      label: 'codigo',
+      render: (n) => <NegocioIdBadge codigo={n.codigo} />,
+    },
+    {
+      key: 'id_lead',
+      label: 'id_lead',
+      render: (n) => <LeadIdBadge id={n.id_lead} />,
+    },
     { key: 'valor', label: 'valor', render: (n) => money(n.valor) },
     {
       key: 'status_negocio',
@@ -319,23 +308,27 @@ export function NegociosPage() {
     {
       key: 'pipeline_id',
       label: 'pipeline_id',
-      render: (n) => cell(n.pipeline_id),
+      render: (n) => <UuidBadge value={n.pipeline_id} hint="pipeline_id" />,
     },
-    { key: 'stage_id', label: 'stage_id', render: (n) => cell(n.stage_id) },
+    {
+      key: 'stage_id',
+      label: 'stage_id',
+      render: (n) => <UuidBadge value={n.stage_id} hint="stage_id" />,
+    },
     {
       key: 'created_at',
       label: 'created_at',
-      render: (n) => cell(n.created_at),
+      render: (n) => cell(n.created_at, 'created_at'),
     },
     {
       key: 'updated_at',
       label: 'updated_at',
-      render: (n) => cell(n.updated_at),
+      render: (n) => cell(n.updated_at, 'updated_at'),
     },
     {
       key: 'archived_at',
       label: 'archived_at',
-      render: (n) => cell(n.archived_at),
+      render: (n) => cell(n.archived_at, 'archived_at'),
     },
   ]
 
@@ -430,20 +423,15 @@ export function NegociosPage() {
                 Lista
               </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowPipelineModal(true)}
-              className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm font-semibold"
-            >
-              <Plus className="h-3.5 w-3.5" /> Pipeline
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowStageModal(true)}
-              className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm font-semibold"
-            >
-              <Layers3 className="h-3.5 w-3.5" /> Estágios
-            </button>
+            {isOwner && (
+              <button
+                type="button"
+                onClick={() => setShowPipelineManager(true)}
+                className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm font-semibold"
+              >
+                <Layers3 className="h-3.5 w-3.5" /> Gerenciar funis
+              </button>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -617,7 +605,12 @@ export function NegociosPage() {
       {selected && (
         <CrmEntitySideOver
           title={selected.titulo}
-          subtitle={`${selected.codigo || '—'} · LED-${selected.id_lead}`}
+          subtitle={
+            <span className="inline-flex flex-wrap items-center gap-1.5">
+              <NegocioIdBadge codigo={selected.codigo} />
+              <LeadIdBadge id={selected.id_lead} />
+            </span>
+          }
           onClose={() => setSelected(null)}
           onSave={() => void saveSelected()}
           onArchive={() => void handleArchiveNegocio()}
@@ -672,61 +665,22 @@ export function NegociosPage() {
               }
             />
             <dl className="grid grid-cols-2 gap-3 text-sm">
-              <Info label="codigo" value={selected.codigo} />
-              <Info label="Lead" value={selected.leads?.nome} />
-              <Info label="created_at" value={selected.created_at} />
-              <Info label="updated_at" value={selected.updated_at} />
+              <MetaInfo label="codigo" value={selected.codigo} />
+              <MetaInfo label="Lead" value={selected.leads?.nome} kind="text" />
+              <MetaInfo label="created_at" value={selected.created_at} />
+              <MetaInfo label="updated_at" value={selected.updated_at} />
             </dl>
           </div>
         </CrmEntitySideOver>
       )}
 
-      {showPipelineModal && (
-        <SideOver
-          title="Novo funil de negócios"
-          onClose={() => setShowPipelineModal(false)}
-          widthClass="max-w-md"
-          footer={
-            <button
-              type="button"
-              onClick={() => void handleCreatePipeline()}
-              className="w-full rounded-xl bg-liqui-orange px-4 py-2.5 text-sm font-bold text-white"
-            >
-              Criar
-            </button>
-          }
-        >
-          <input
-            value={newPipelineName}
-            onChange={(e) => setNewPipelineName(e.target.value)}
-            placeholder="Ex.: Enterprise, Upsell…"
-            className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm outline-none focus:border-liqui-orange"
-          />
-        </SideOver>
-      )}
-
-      {showStageModal && (
-        <SideOver
-          title="Novo estágio"
-          onClose={() => setShowStageModal(false)}
-          widthClass="max-w-md"
-          footer={
-            <button
-              type="button"
-              onClick={() => void handleCreateStage()}
-              className="w-full rounded-xl bg-liqui-orange px-4 py-2.5 text-sm font-bold text-white"
-            >
-              Criar
-            </button>
-          }
-        >
-          <input
-            value={newStageName}
-            onChange={(e) => setNewStageName(e.target.value)}
-            placeholder="Ex.: Negociação, Contrato…"
-            className="w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm outline-none focus:border-liqui-orange"
-          />
-        </SideOver>
+      {showPipelineManager && isOwner && (
+        <PipelineManagerSideOver
+          kind="negocios"
+          activePipelineId={pipelineId}
+          onClose={() => setShowPipelineManager(false)}
+          onChanged={() => void loadAll()}
+        />
       )}
     </div>
   )
@@ -746,23 +700,6 @@ function Kpi({
       <p className="text-xs font-bold uppercase tracking-wide text-zinc-400">{title}</p>
       <p className="mt-1 text-2xl font-extrabold text-liqui-navy">{value}</p>
       <p className="mt-1 text-xs text-zinc-500">{hint}</p>
-    </div>
-  )
-}
-
-function Info({
-  label,
-  value,
-}: {
-  label: string
-  value: string | null | undefined
-}) {
-  return (
-    <div className="rounded-xl bg-zinc-50 px-3 py-2">
-      <dt className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">
-        {label}
-      </dt>
-      <dd className="mt-0.5 text-sm font-medium text-liqui-navy">{value || '—'}</dd>
     </div>
   )
 }

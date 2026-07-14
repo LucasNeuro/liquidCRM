@@ -1,5 +1,6 @@
 import { loadSkillPrompt } from './loadSkillPrompt.js'
 import { runGeminiJson } from './geminiClient.js'
+import { logAiUsage } from './logAiUsage.js'
 
 const INTENTS = new Set([
   'compra',
@@ -80,5 +81,16 @@ ${input.text}
     temperature: 0.2,
   })
 
-  return validateClassification(parsed, model, raw)
+  const result = validateClassification(parsed, model, raw)
+
+  await logAiUsage({
+    provider: 'gemini',
+    operation: 'lead_classify',
+    model_name: model,
+    units: 1,
+    estimated_cost_usd: 0.0015,
+    meta: { source: 'local_gateway', lead_name: input.leadName || null },
+  })
+
+  return result
 }

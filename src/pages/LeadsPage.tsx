@@ -3,7 +3,6 @@ import {
   Layers3,
   Mail,
   Phone,
-  Plus,
   RefreshCw,
   Search,
   Star,
@@ -12,6 +11,7 @@ import {
 } from 'lucide-react'
 import { LeadDrawer } from '../components/leads/LeadDrawer'
 import { LeadKanbanCard } from '../components/leads/LeadKanbanCard'
+import { PipelineManagerSideOver } from '../components/crm/PipelineManagerSideOver'
 import {
   FilterSelect,
   matchesQuery,
@@ -19,16 +19,18 @@ import {
 } from '../components/ui/CrmFilters'
 import { DataTable, type DataColumn } from '../components/ui/DataTable'
 import { LeadAvatar } from '../components/ui/LeadAvatar'
-import { SideOver } from '../components/ui/SideOver'
+import { LeadIdBadge, UuidBadge } from '../components/ui/IdBadge'
 import { useShellHeader } from '../layouts/ShellContext'
+import { useAuth } from '../contexts/AuthContext'
+import { formatCellValue } from '../lib/format'
 import {
+  fetchLeadIdsWithInsights,
   fetchLeads,
   fetchRespostas,
   fetchTentativas,
+  isLeadClassified,
 } from '../lib/leads'
 import {
-  createPipeline,
-  createStage,
   fetchPipelines,
   fetchStages,
   updateLeadStage,
@@ -41,6 +43,7 @@ const STAGE_ICONS = [Mail, Phone, Star, Trophy, Layers3]
 
 export function LeadsPage() {
   const { setHeader } = useShellHeader()
+  const { isOwner } = useAuth()
   const [leads, setLeads] = useState<Lead[]>([])
   const [tentativas, setTentativas] = useState<TentativaCompra[]>([])
   const [respostas, setRespostas] = useState<RespostaPesquisa[]>([])
@@ -55,14 +58,17 @@ export function LeadsPage() {
   const [statusFiltro, setStatusFiltro] = useState('todos')
   const [stageFiltro, setStageFiltro] = useState('todos')
   const [intentFiltro, setIntentFiltro] = useState('todos')
+  const [iaFiltro, setIaFiltro] = useState<
+    'todos' | 'classificados' | 'com_insight' | 'ambos' | 'sem_ia'
+  >('todos')
+  const [insightLeadIds, setInsightLeadIds] = useState<Set<number>>(
+    () => new Set(),
+  )
   const [selected, setSelected] = useState<Lead | null>(null)
   const [draggingId, setDraggingId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [view, setView] = useState<'kanban' | 'lista'>('kanban')
-  const [showPipelineModal, setShowPipelineModal] = useState(false)
-  const [showStageModal, setShowStageModal] = useState(false)
-  const [newPipelineName, setNewPipelineName] = useState('')
-  const [newStageName, setNewStageName] = useState('')
+  const [showPipelineManager, setShowPipelineManager] = useState(false)
 
   async function loadStructure() {
     const pipes = await fetchPipelines()
@@ -85,14 +91,16 @@ export function LeadsPage() {
     setLoading(true)
     setError(null)
     try {
-      const [l, t, r] = await Promise.all([
+      const [l, t, r, insightIds] = await Promise.all([
         fetchLeads(),
         fetchTentativas(),
         fetchRespostas(),
+        fetchLeadIdsWithInsights(),
       ])
       setLeads(l)
       setTentativas(t)
       setRespostas(r)
+      setInsightLeadIds(insightIds)
       await loadStructure()
     } catch (err) {
       setError(
@@ -156,7 +164,8 @@ export function LeadsPage() {
     produto !== 'todos' ||
     statusFiltro !== 'todos' ||
     stageFiltro !== 'todos' ||
-    intentFiltro !== 'todos'
+    intentFiltro !== 'todos' ||
+    iaFiltro !== 'todos'
 
   function clearFilters() {
     setQuery('')
@@ -165,6 +174,7 @@ export function LeadsPage() {
     setStatusFiltro('todos')
     setStageFiltro('todos')
     setIntentFiltro('todos')
+    setIaFiltro('todos')
   }
 
   const filtered = useMemo(() => {
@@ -183,6 +193,14 @@ export function LeadsPage() {
       ) {
         return false
       }
+
+      const classified = isLeadClassified(lead)
+      const hasInsight = insightLeadIds.has(lead.id_lead)
+      if (iaFiltro === 'classificados' && !classified) return false
+      if (iaFiltro === 'com_insight' && !hasInsight) return false
+      if (iaFiltro === 'ambos' && !(classified && hasInsight)) return false
+      if (iaFiltro === 'sem_ia' && (classified || hasInsight)) return false
+
       return matchesQuery(
         [
           lead.id_lead,
@@ -210,6 +228,8 @@ export function LeadsPage() {
     statusFiltro,
     stageFiltro,
     intentFiltro,
+    iaFiltro,
+    insightLeadIds,
   ])
 
   const kpis = useMemo(() => {
@@ -272,32 +292,6 @@ export function LeadsPage() {
     }
   }
 
-  async function handleCreatePipeline() {
-    if (!newPipelineName.trim()) return
-    try {
-      const pipe = await createPipeline(newPipelineName.trim())
-      setNewPipelineName('')
-      setShowPipelineModal(false)
-      await loadAll()
-      await switchPipeline(pipe.id)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao criar funil')
-    }
-  }
-
-  async function handleCreateStage() {
-    if (!newStageName.trim() || !pipelineId) return
-    try {
-      await createStage(pipelineId, newStageName.trim())
-      setNewStageName('')
-      setShowStageModal(false)
-      const st = await fetchStages(pipelineId)
-      setStages(st)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao criar estágio')
-    }
-  }
-
   function stageForLead(lead: Lead) {
     if (lead.stage_id) {
       return stages.find((s) => s.id === lead.stage_id)
@@ -305,7 +299,7 @@ export function LeadsPage() {
     return stages.find((s) => s.name === (lead.status || 'Novo'))
   }
 
-  const cell = (v: unknown) => (v == null || v === '' ? '—' : String(v))
+  const cell = (v: unknown, key?: string) => formatCellValue(v, key)
 
   const leadTableColumns: DataColumn<Lead>[] = [
     {
@@ -318,7 +312,11 @@ export function LeadsPage() {
         </div>
       ),
     },
-    { key: 'id_lead', label: 'id_lead', render: (l) => cell(l.id_lead) },
+    {
+      key: 'id_lead',
+      label: 'id_lead',
+      render: (l) => <LeadIdBadge id={l.id_lead} />,
+    },
     { key: 'email', label: 'email', render: (l) => cell(l.email) },
     { key: 'telefone', label: 'telefone', render: (l) => cell(l.telefone) },
     { key: 'origem', label: 'origem', render: (l) => cell(l.origem) },
@@ -331,7 +329,7 @@ export function LeadsPage() {
     {
       key: 'data_entrada',
       label: 'data_entrada',
-      render: (l) => cell(l.data_entrada),
+      render: (l) => cell(l.data_entrada, 'data_entrada'),
     },
     {
       key: 'score_gemini',
@@ -344,6 +342,31 @@ export function LeadsPage() {
       render: (l) => cell(l.intent_gemini),
     },
     {
+      key: 'ia',
+      label: 'ia',
+      render: (l) => {
+        const classified = isLeadClassified(l)
+        const hasInsight = insightLeadIds.has(l.id_lead)
+        if (!classified && !hasInsight) {
+          return <span className="text-zinc-400">—</span>
+        }
+        return (
+          <span className="inline-flex flex-wrap gap-1">
+            {classified && (
+              <span className="rounded-md bg-liqui-orange px-1.5 py-0.5 text-[10px] font-bold text-white">
+                classificado
+              </span>
+            )}
+            {hasInsight && (
+              <span className="rounded-md bg-liqui-navy px-1.5 py-0.5 text-[10px] font-bold text-white">
+                insight
+              </span>
+            )}
+          </span>
+        )
+      },
+    },
+    {
       key: 'labels_gemini',
       label: 'labels_gemini',
       render: (l) =>
@@ -351,17 +374,25 @@ export function LeadsPage() {
           ? l.labels_gemini.join(', ')
           : '—',
     },
-    { key: 'created_at', label: 'created_at', render: (l) => cell(l.created_at) },
+    {
+      key: 'created_at',
+      label: 'created_at',
+      render: (l) => cell(l.created_at, 'created_at'),
+    },
     {
       key: 'pipeline_id',
       label: 'pipeline_id',
-      render: (l) => cell(l.pipeline_id),
+      render: (l) => <UuidBadge value={l.pipeline_id} hint="pipeline_id" />,
     },
-    { key: 'stage_id', label: 'stage_id', render: (l) => cell(l.stage_id) },
+    {
+      key: 'stage_id',
+      label: 'stage_id',
+      render: (l) => <UuidBadge value={l.stage_id} hint="stage_id" />,
+    },
     {
       key: 'archived_at',
       label: 'archived_at',
-      render: (l) => cell(l.archived_at),
+      render: (l) => cell(l.archived_at, 'archived_at'),
     },
   ]
 
@@ -369,15 +400,42 @@ export function LeadsPage() {
     <div className="flex h-full flex-col overflow-hidden">
       {/* Toolbar fixa (não rola com o board) */}
       <div className="shrink-0 space-y-3 border-b border-zinc-200 bg-[#f3f4f6] px-5 pb-3 pt-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-bold uppercase tracking-wide text-zinc-400">
+        <div className="flex items-center gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:thin]">
+          {/* Visão */}
+          <div className="inline-flex shrink-0 rounded-full bg-white p-0.5 shadow-sm ring-1 ring-zinc-200">
+            <button
+              type="button"
+              onClick={() => setView('kanban')}
+              className={`rounded-full px-3 py-1.5 text-xs font-bold ${
+                view === 'kanban'
+                  ? 'bg-liqui-orange text-white'
+                  : 'text-zinc-600 hover:bg-zinc-50'
+              }`}
+            >
+              Kanban
+            </button>
+            <button
+              type="button"
+              onClick={() => setView('lista')}
+              className={`rounded-full px-3 py-1.5 text-xs font-bold ${
+                view === 'lista'
+                  ? 'bg-liqui-orange text-white'
+                  : 'text-zinc-600 hover:bg-zinc-50'
+              }`}
+            >
+              Lista
+            </button>
+          </div>
+
+          {/* Funil */}
+          <div className="inline-flex shrink-0 items-center gap-1 rounded-full border border-zinc-200 bg-white py-0.5 pl-2.5 pr-0.5 shadow-sm">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">
               Funil
             </span>
             <select
               value={pipelineId}
               onChange={(e) => void switchPipeline(e.target.value)}
-              className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm font-semibold outline-none"
+              className="max-w-[140px] truncate border-0 bg-transparent py-1 pr-1 text-xs font-semibold text-liqui-navy outline-none"
             >
               {pipelines.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -385,81 +443,62 @@ export function LeadsPage() {
                 </option>
               ))}
             </select>
-            <div className="inline-flex rounded-full bg-white p-1 shadow-sm">
+            {isOwner && (
               <button
                 type="button"
-                onClick={() => setView('kanban')}
-                className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
-                  view === 'kanban'
-                    ? 'bg-liqui-orange text-white'
-                    : 'text-zinc-600'
-                }`}
+                onClick={() => setShowPipelineManager(true)}
+                title="Gerenciar funis"
+                className="inline-flex items-center gap-1 rounded-full bg-zinc-50 px-2.5 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-100"
               >
-                Kanban
+                <Layers3 className="h-3.5 w-3.5" />
+                Funis
               </button>
-              <button
-                type="button"
-                onClick={() => setView('lista')}
-                className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
-                  view === 'lista'
-                    ? 'bg-liqui-orange text-white'
-                    : 'text-zinc-600'
-                }`}
-              >
-                Lista
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowPipelineModal(true)}
-              className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-700"
-            >
-              <Plus className="h-3.5 w-3.5" /> Pipeline
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowStageModal(true)}
-              className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-700"
-            >
-              <Layers3 className="h-3.5 w-3.5" /> Estágios
-            </button>
+            )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Buscar nome, telefone, e-mail ou código…"
-                className="w-[240px] rounded-full border border-zinc-200 bg-white py-2 pl-9 pr-3 text-sm outline-none focus:border-liqui-orange"
-              />
-            </div>
+          <div className="hidden h-5 w-px shrink-0 bg-zinc-200 sm:block" />
+
+          {/* Busca */}
+          <div className="relative shrink-0">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar…"
+              className="w-[160px] rounded-full border border-zinc-200 bg-white py-1.5 pl-8 pr-3 text-xs outline-none focus:border-liqui-orange lg:w-[200px]"
+            />
+          </div>
+
+          {/* Filtros */}
+          <div className="inline-flex shrink-0 items-center gap-1.5">
             <FilterSelect
               value={origem}
               onChange={setOrigem}
-              allLabel="Todas origens"
+              allLabel="Origem"
               allValue="todas"
               options={origens}
+              className="py-1.5 text-xs"
             />
             <FilterSelect
               value={produto}
               onChange={setProduto}
-              allLabel="Todos produtos"
+              allLabel="Produto"
               options={produtos}
+              className="py-1.5 text-xs"
             />
             <FilterSelect
               value={statusFiltro}
               onChange={setStatusFiltro}
-              allLabel="Todos status"
+              allLabel="Status"
               options={statusList}
+              className="py-1.5 text-xs"
             />
             <select
               value={stageFiltro}
               onChange={(e) => setStageFiltro(e.target.value)}
-              className="rounded-full border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-liqui-orange"
+              className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs outline-none focus:border-liqui-orange"
             >
-              <option value="todos">Todos estágios</option>
+              <option value="todos">Estágio</option>
               {stages.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -469,16 +508,57 @@ export function LeadsPage() {
             <FilterSelect
               value={intentFiltro}
               onChange={setIntentFiltro}
-              allLabel="Todas intents"
+              allLabel="Intent"
               options={intents}
+              className="py-1.5 text-xs"
             />
+            <select
+              value={iaFiltro}
+              onChange={(e) =>
+                setIaFiltro(
+                  e.target.value as
+                    | 'todos'
+                    | 'classificados'
+                    | 'com_insight'
+                    | 'ambos'
+                    | 'sem_ia',
+                )
+              }
+              className={`rounded-full border px-3 py-1.5 text-xs outline-none focus:border-liqui-orange ${
+                iaFiltro !== 'todos'
+                  ? 'border-liqui-orange bg-liqui-orange-soft font-semibold text-liqui-navy'
+                  : 'border-zinc-200 bg-white'
+              }`}
+            >
+              <option value="todos">IA</option>
+              <option value="classificados">Classificados</option>
+              <option value="com_insight">Com insight</option>
+              <option value="ambos">Classificados + insight</option>
+              <option value="sem_ia">Sem IA</option>
+            </select>
+          </div>
+
+          {/* Ações */}
+          <div className="inline-flex shrink-0 rounded-full bg-white p-0.5 shadow-sm ring-1 ring-zinc-200">
+            <button
+              type="button"
+              onClick={() => setIaFiltro('ambos')}
+              className={`rounded-full px-3 py-1.5 text-xs font-bold ${
+                iaFiltro === 'ambos'
+                  ? 'bg-liqui-navy text-white'
+                  : 'text-zinc-600 hover:bg-zinc-50'
+              }`}
+            >
+              IA completa
+            </button>
             {hasActiveFilters && (
               <button
                 type="button"
                 onClick={clearFilters}
-                className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-600"
+                className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold text-zinc-600 hover:bg-zinc-50"
               >
-                <X className="h-3.5 w-3.5" /> Limpar
+                <X className="h-3.5 w-3.5" />
+                Limpar
               </button>
             )}
           </div>
@@ -576,6 +656,7 @@ export function LeadsPage() {
                       <LeadKanbanCard
                         key={lead.id_lead}
                         lead={lead}
+                        hasInsight={insightLeadIds.has(lead.id_lead)}
                         dragging={draggingId === lead.id_lead}
                         onOpen={() => setSelected(lead)}
                         onDragStart={(e) => {
@@ -607,84 +688,13 @@ export function LeadsPage() {
         />
       )}
 
-      {showPipelineModal && (
-        <SideOver
-          title="Novo funil"
-          subtitle="Crie um pipeline com estágios padrão"
-          onClose={() => setShowPipelineModal(false)}
-          widthClass="max-w-md"
-          footer={
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setShowPipelineModal(false)}
-                className="flex-1 rounded-xl border border-zinc-200 px-4 py-2.5 text-sm font-semibold"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleCreatePipeline()}
-                className="flex-1 rounded-xl bg-liqui-orange px-4 py-2.5 text-sm font-bold text-white"
-              >
-                Criar funil
-              </button>
-            </div>
-          }
-        >
-          <label className="block text-sm font-semibold text-liqui-navy">
-            Nome do funil
-            <input
-              value={newPipelineName}
-              onChange={(e) => setNewPipelineName(e.target.value)}
-              placeholder="Ex.: Onboarding, Comercial..."
-              className="mt-2 w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm outline-none focus:border-liqui-orange"
-              autoFocus
-            />
-          </label>
-          <p className="mt-3 text-xs text-zinc-500">
-            Serão criados os estágios: Novo, Em contato, Qualificado, Ganho e
-            Perdido — você pode adicionar mais depois.
-          </p>
-        </SideOver>
-      )}
-
-      {showStageModal && (
-        <SideOver
-          title="Novo estágio"
-          subtitle="Adicione uma coluna ao funil atual"
-          onClose={() => setShowStageModal(false)}
-          widthClass="max-w-md"
-          footer={
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setShowStageModal(false)}
-                className="flex-1 rounded-xl border border-zinc-200 px-4 py-2.5 text-sm font-semibold"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleCreateStage()}
-                className="flex-1 rounded-xl bg-liqui-orange px-4 py-2.5 text-sm font-bold text-white"
-              >
-                Criar estágio
-              </button>
-            </div>
-          }
-        >
-          <label className="block text-sm font-semibold text-liqui-navy">
-            Nome do estágio
-            <input
-              value={newStageName}
-              onChange={(e) => setNewStageName(e.target.value)}
-              placeholder="Ex.: Proposta, Negociação..."
-              className="mt-2 w-full rounded-xl border border-zinc-200 px-3 py-2.5 text-sm outline-none focus:border-liqui-orange"
-              autoFocus
-            />
-          </label>
-        </SideOver>
+      {showPipelineManager && isOwner && (
+        <PipelineManagerSideOver
+          kind="leads"
+          activePipelineId={pipelineId}
+          onClose={() => setShowPipelineManager(false)}
+          onChanged={() => void loadAll()}
+        />
       )}
     </div>
   )

@@ -7,8 +7,10 @@ import {
   uniqueOptions,
 } from '../components/ui/CrmFilters'
 import { DataTable, type DataColumn } from '../components/ui/DataTable'
+import { LeadIdBadge, UuidBadge } from '../components/ui/IdBadge'
 import { LeadAvatar } from '../components/ui/LeadAvatar'
 import { useShellHeader } from '../layouts/ShellContext'
+import { formatCellValue } from '../lib/format'
 import {
   archiveResposta,
   createResposta,
@@ -21,9 +23,8 @@ import {
 } from '../lib/respostas'
 import type { RespostaPesquisa } from '../lib/types'
 
-function cell(v: unknown) {
-  if (v == null || v === '') return '—'
-  return String(v)
+function cell(v: unknown, key?: string) {
+  return formatCellValue(v, key)
 }
 
 export function RespostasPage() {
@@ -177,7 +178,7 @@ export function RespostasPage() {
         </div>
       ),
     },
-    { key: 'id', label: 'id', render: (r) => cell(r.id) },
+    { key: 'id', label: 'id', render: (r) => <UuidBadge value={r.id} hint="id" /> },
     { key: 'email', label: 'email', render: (r) => cell(r.email) },
     { key: 'telefone', label: 'telefone', render: (r) => cell(r.telefone) },
     {
@@ -203,13 +204,17 @@ export function RespostasPage() {
     {
       key: 'data_resposta',
       label: 'data_resposta',
-      render: (r) => cell(r.data_resposta),
+      render: (r) => cell(r.data_resposta, 'data_resposta'),
     },
-    { key: 'id_lead', label: 'id_lead', render: (r) => cell(r.id_lead) },
+    {
+      key: 'id_lead',
+      label: 'id_lead',
+      render: (r) => <LeadIdBadge id={r.id_lead} />,
+    },
     {
       key: 'archived_at',
       label: 'archived_at',
-      render: (r) => cell(r.archived_at),
+      render: (r) => cell(r.archived_at, 'archived_at'),
     },
   ]
 
@@ -478,7 +483,16 @@ export function RespostasPage() {
       {selected && (
         <CrmEntitySideOver
           title={isNew ? 'Nova resposta' : selected.nome}
-          subtitle={isNew ? 'Criar registro' : `ID ${selected.id} · editar`}
+          subtitle={
+            isNew ? (
+              'Criar registro'
+            ) : (
+              <span className="inline-flex items-center gap-1.5">
+                <UuidBadge value={selected.id} hint="id" />
+                <span>editar</span>
+              </span>
+            )
+          }
           onClose={() => {
             setSelected(null)
             setIsNew(false)

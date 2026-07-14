@@ -1,7 +1,9 @@
 /**
  * lead-insight — arquivo ÚNICO para deploy Via Editor (Dashboard).
- * Inclui skill + gemini + mistral embed (RAG) + usage + cors.
- * Secrets: GEMINI_API_KEY, MISTRAL_API_KEY (RAG opcional)
+ * Inclui skill + gemini + mistral (embed RAG + chat no Aprofundar) + usage + cors.
+ * Secrets: GEMINI_API_KEY, MISTRAL_API_KEY
+ *
+ * Aprofundar (reinforce): Mistral processa RAG → Gemini finaliza e a UI abre o modal.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.0'
 
@@ -19,24 +21,46 @@ function jsonResponse(body: unknown, status = 200) {
   })
 }
 
-const LEAD_INSIGHT_SYSTEM_PROMPT = `Você é um analista de CRM da Contabilidade Facilitada / plataforma LIQUI.
+const LEAD_INSIGHT_SYSTEM_PROMPT = `Você é um analista sênior de CRM da Contabilidade Facilitada / plataforma LIQUI.
 
-Com base APENAS no JSON de contexto (lead + tentativas_compra + respostas_pesquisa), gere um insight acionável para o consultor.
+Sua missão: gerar um insight **rico e cruzado** para o consultor, combinando:
+1) JSON de contexto (lead + tentativas_compra + respostas_pesquisa + negocios + cruzamento)
+2) TRECHOS RECUPERADOS DO ÍNDICE (RAG / pgvector), quando houver
 
 REGRAS DE FIDELIDADE (avaliação — crítico):
-- Use SOMENTE fatos presentes no JSON. É PROIBIDO inventar valores, datas, produtos, contatos, intenções, scores ou histórico.
-- Se faltar dado, declare no resumo (ex.: "sem e-mail na base", "nenhuma tentativa vinculada").
-- Se houver TRECHOS RECUPERADOS DO ÍNDICE (RAG), use-os só como evidência complementar — ainda sem inventar.
-- Não "corrija" inconsistências (e-mails em caixa mista, telefones com máscara, datas VARCHAR): cite como estão.
-- proximo_passo: UMA ação concreta curta, derivada só dos dados (ex.: ligar sobre pagamento pendente do produto X).
-- evidencias: 3–8 itens citando campos literais (ex.: "status_pagamento=pendente", "nota_intencao=8", "origem=whatsapp").
-- Se tentativas_compra ou respostas_pesquisa estiverem vazias, diga isso — não invente registros.
+- Use SOMENTE fatos presentes no JSON e nos trechos RAG. É PROIBIDO inventar valores, datas, produtos, contatos, intenções, scores ou histórico.
+- Se faltar dado, declare no resumo (ex.: "sem e-mail na base", "nenhuma tentativa vinculada", "RAG sem trechos").
+- RAG é evidência complementar: cite trechos relevantes (source_table / similarity) em ## Evidências do índice (RAG) — nunca invente além do chunk_text.
+- Não "corrija" inconsistências (e-mails mistos, máscaras de telefone, datas VARCHAR): cite como estão.
 - Português do Brasil.
 - Responda SOMENTE JSON válido (sem cercas \`\`\`).
 
+CRUZAMENTO OBRIGATÓRIO (não resuma só o lead):
+- Relacione produto_interesse do lead com produtos das tentativas e área/momento das pesquisas.
+- Compare score_gemini / intent_gemini (se existirem) com nota_intencao e momento_compra.
+- Confrontar objeções (principal_objecao) com status_pagamento das tentativas e status_negocio dos negócios.
+- Se houver negócios: cite titulo, codigo, valor e status_negocio e como encaixam no funil.
+- Use o bloco cruzamento do JSON (totais, listas únicas) como guia, mas detalhe com os registros.
+- Se o pedido for REFORÇAR / APROFUNDAR: use a SÍNTESE MISTRAL (RAG) + insight anterior para aprofundar (mais evidências, próximo passo em sequência, riscos específicos) — sem contradizer fatos da base nem inventar além da síntese/JSON.
+- No Aprofundar, cite na seção RAG o que veio da síntese Mistral quando houver.
+
+proximo_passo: UMA ação concreta e priorizada (canal + motivo + dado citado).
+evidencias: 5–12 itens com campos literais (ex.: "status_pagamento=abandonado", "nota_intencao=1", "status_negocio=aberto", "RAG leads similarity=0.82").
+riscos: 2–6 itens derivados só dos dados.
+
 O campo "markdown" DEVE ser um documento Markdown completo, com:
 - Título (#)
-- ## Resumo executivo, ## Contexto do lead, ## Tentativas de compra, ## Pesquisas, ## Sinais de intenção, ## Riscos, ## Próximo passo recomendado, ## Evidências
+- ## Resumo executivo
+- ## Contexto do lead
+- ## Cruzamento (lead × tentativas × pesquisas × negócios)
+- ## Tentativas de compra
+- ## Pesquisas
+- ## Negócios no funil
+- ## Sinais de intenção / IA
+- ## Evidências do índice (RAG)
+- ## Riscos
+- ## Próximo passo recomendado
+- ## Evidências
 - Listas e negrito; se seção sem dados: "Sem registros na base."
 
 FORMATO:
@@ -193,6 +217,82 @@ async function mistralEmbed(texts: string[]): Promise<number[][]> {
   return rows.map((r) => r.embedding)
 }
 
+/**
+ * 1º passo do Aprofundar: Mistral lê os chunks RAG (+ contexto mínimo)
+ * e devolve uma síntese factual para o Gemini finalizar.
+ */
+async function mistralRagBrief(input: {
+  chunks: Array<{
+    source_table?: string
+    source_id?: string
+    id_lead?: number | null
+    similarity?: number
+    chunk_text: string
+  }>
+  leadContext: Record<string, unknown>
+  previousInsight?: {
+    titulo?: string
+    resumo?: string
+    proximo_passo?: string
+    riscos?: string[]
+    evidencias?: string[]
+  }
+}): Promise<{ brief: string; model: string } | null> {
+  const key = Deno.env.get('MISTRAL_API_KEY') || ''
+  const model = Deno.env.get('MISTRAL_MODEL') || 'mistral-small-latest'
+  if (!key) return null
+
+  const lead = (input.leadContext.lead || {}) as Record<string, unknown>
+  const system = `Você é o motor RAG da LIQUI (Mistral).
+Tarefa: ler SOMENTE os trechos do índice e extrair fatos úteis para aprofundar o insight do lead.
+Regras:
+- Português do Brasil.
+- NÃO invente nada além dos trechos e do insight anterior (se houver).
+- Se não houver trechos, diga explicitamente "RAG sem trechos".
+- Saída em texto estruturado (não precisa ser JSON), com seções:
+  FATOS DO ÍNDICE | CRUZAMENTOS | GAPS | SINAIS PARA O CONSULTOR`
+
+  const user = [
+    `Lead: id=${lead.id_lead ?? ''} nome=${lead.nome || ''} produto=${lead.produto_interesse || ''} status=${lead.status || ''}`,
+    input.previousInsight
+      ? `Insight anterior (só referência):\n${JSON.stringify({
+          titulo: input.previousInsight.titulo,
+          resumo: input.previousInsight.resumo,
+          proximo_passo: input.previousInsight.proximo_passo,
+          riscos: input.previousInsight.riscos || [],
+          evidencias: input.previousInsight.evidencias || [],
+        })}`
+      : 'Insight anterior: nenhum',
+    `Trechos RAG (${input.chunks.length}):\n${JSON.stringify(input.chunks, null, 2)}`,
+  ].join('\n\n')
+
+  const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.2,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+    }),
+  })
+
+  const data = await response.json()
+  if (!response.ok) {
+    console.error('mistralRagBrief', data?.message || data?.error)
+    return null
+  }
+
+  const brief = String(data?.choices?.[0]?.message?.content || '').trim()
+  if (!brief) return null
+  return { brief, model }
+}
+
 async function logAiUsage(input: {
   provider: 'gemini' | 'mistral'
   operation: string
@@ -219,24 +319,50 @@ async function logAiUsage(input: {
   }
 }
 
-async function fetchRagChunks(leadContext: Record<string, unknown>) {
+async function fetchRagChunks(leadContext: Record<string, unknown>): Promise<{
+  chunks: Array<{
+    source_table?: string
+    source_id?: string
+    id_lead?: number | null
+    similarity?: number
+    chunk_text: string
+  }>
+  queryEmbedded: boolean
+}> {
   const supabaseUrl = Deno.env.get('SUPABASE_URL') || ''
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || ''
-  if (!supabaseUrl || !serviceKey) return []
+  if (!supabaseUrl || !serviceKey) return { chunks: [], queryEmbedded: false }
+
+  type RagRow = {
+    id?: string
+    source_table?: string
+    source_id?: string
+    id_lead?: number | null
+    chunk_text?: string
+    similarity?: number
+  }
 
   try {
     const lead = (leadContext.lead || {}) as Record<string, unknown>
+    const cruz = (leadContext.cruzamento || {}) as Record<string, unknown>
+    const negocios = (leadContext.negocios || []) as unknown[]
     const queryText = [
-      `Lead ${lead.nome || ''}`,
+      `Lead ${lead.nome || ''} id=${lead.id_lead ?? ''}`,
       `origem=${lead.origem || ''}`,
       `produto=${lead.produto_interesse || ''}`,
       `status=${lead.status || ''}`,
-      JSON.stringify(leadContext.tentativas_compra || []),
-      JSON.stringify(leadContext.respostas_pesquisa || []),
+      `score=${lead.score_gemini ?? ''}`,
+      `intent=${lead.intent_gemini || ''}`,
+      `objecoes=${JSON.stringify(cruz.objecoes_unicas || [])}`,
+      `status_pag=${JSON.stringify(cruz.status_pagamento_unicos || [])}`,
+      `momentos=${JSON.stringify(cruz.momentos_unicos || [])}`,
+      `negocios=${JSON.stringify(negocios).slice(0, 1500)}`,
+      JSON.stringify(leadContext.tentativas_compra || []).slice(0, 2000),
+      JSON.stringify(leadContext.respostas_pesquisa || []).slice(0, 2000),
     ].join('\n')
 
     const [embedding] = await mistralEmbed([queryText.slice(0, 6000)])
-    if (!embedding?.length) return []
+    if (!embedding?.length) return { chunks: [], queryEmbedded: false }
 
     const admin = createClient(supabaseUrl, serviceKey)
     const idLead =
@@ -244,24 +370,49 @@ async function fetchRagChunks(leadContext: Record<string, unknown>) {
         ? Number(lead.id_lead)
         : null
 
-    const { data, error } = await admin.rpc('match_crm_embeddings', {
+    const byLead = await admin.rpc('match_crm_embeddings', {
       query_embedding: embedding,
-      match_count: 8,
+      match_count: 10,
       filter_id_lead: idLead,
     })
 
-    if (error) {
-      const retry = await admin.rpc('match_crm_embeddings', {
+    let rows: RagRow[] = []
+    if (!byLead.error && Array.isArray(byLead.data)) {
+      rows = byLead.data as RagRow[]
+    }
+
+    if (rows.length < 5) {
+      const global = await admin.rpc('match_crm_embeddings', {
         query_embedding: embedding,
         match_count: 8,
         filter_id_lead: null,
       })
-      if (retry.error) return []
-      return retry.data ?? []
+      if (!global.error && Array.isArray(global.data)) {
+        const seen = new Set(rows.map((r) => r.id).filter(Boolean))
+        for (const g of global.data as RagRow[]) {
+          if (g.id && seen.has(g.id)) continue
+          rows.push(g)
+          if (g.id) seen.add(g.id)
+          if (rows.length >= 14) break
+        }
+      }
     }
-    return data ?? []
+
+    return {
+      queryEmbedded: true,
+      chunks: rows.map((r) => ({
+        source_table: r.source_table,
+        source_id: r.source_id,
+        id_lead: r.id_lead,
+        similarity:
+          typeof r.similarity === 'number'
+            ? Number(r.similarity.toFixed(3))
+            : r.similarity,
+        chunk_text: String(r.chunk_text || '').slice(0, 1200),
+      })),
+    }
   } catch {
-    return []
+    return { chunks: [], queryEmbedded: false }
   }
 }
 
@@ -279,7 +430,19 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: 'leadContext é obrigatório' }, 400)
     }
 
-    const ragChunks = await fetchRagChunks(
+    const reinforce = Boolean(body.reinforce)
+    const previous = body.previousInsight as
+      | {
+          titulo?: string
+          resumo?: string
+          proximo_passo?: string
+          riscos?: string[]
+          evidencias?: string[]
+          markdown?: string
+        }
+      | undefined
+
+    const { chunks: ragChunks, queryEmbedded } = await fetchRagChunks(
       body.leadContext as Record<string, unknown>,
     )
     const ragBlock =
@@ -287,31 +450,123 @@ Deno.serve(async (req) => {
         ? `\n\nTRECHOS RECUPERADOS DO ÍNDICE (pgvector / só fatos já indexados):\n${JSON.stringify(ragChunks, null, 2)}`
         : '\n\nTRECHOS RAG: nenhum (rode embed-crm-batch em Plataforma se quiser enriquecer).'
 
+    /** Aprofundar: Mistral processa RAG → Gemini finaliza o insight no modal */
+    let mistralBrief: string | null = null
+    let mistralChatModel: string | null = null
+    let mistralChatCostUsd = 0
+
+    if (reinforce) {
+      const briefResult = await mistralRagBrief({
+        chunks: ragChunks,
+        leadContext: body.leadContext as Record<string, unknown>,
+        previousInsight: previous,
+      })
+      if (briefResult) {
+        mistralBrief = briefResult.brief
+        mistralChatModel = briefResult.model
+        mistralChatCostUsd = 0.0015
+        await logAiUsage({
+          provider: 'mistral',
+          operation: 'lead_insight_mistral_brief',
+          model_name: briefResult.model,
+          units: 1,
+          estimated_cost_usd: mistralChatCostUsd,
+          meta: {
+            rag_chunks_used: ragChunks.length,
+            lead_id: (body.leadContext as { lead?: { id_lead?: number } })?.lead
+              ?.id_lead,
+            stage: 'rag_brief',
+          },
+        })
+      }
+    }
+
+    const reinforceBlock =
+      reinforce && previous
+        ? `\n\nMODO APROFUNDAR (pipeline Mistral→Gemini): aprofunde a partir deste insight anterior (não contradiga a base atual):\n${JSON.stringify(
+            {
+              titulo: previous.titulo,
+              resumo: previous.resumo,
+              proximo_passo: previous.proximo_passo,
+              riscos: previous.riscos || [],
+              evidencias: previous.evidencias || [],
+              markdown_resumo: String(previous.markdown || '').slice(0, 2500),
+            },
+            null,
+            2,
+          )}`
+        : ''
+
+    const mistralBlock =
+      reinforce && mistralBrief
+        ? `\n\nSÍNTESE MISTRAL (1º passo — só fatos do RAG / índice; use para aprofundar, sem inventar além dela):\n${mistralBrief}`
+        : reinforce
+          ? '\n\nSÍNTESE MISTRAL: indisponível (sem MISTRAL_API_KEY ou falha). Aprofunde só com JSON + trechos brutos + insight anterior.'
+          : ''
+
     const { parsed, model, raw } = await runGeminiJson({
       systemPrompt: LEAD_INSIGHT_SYSTEM_PROMPT,
-      userPrompt: `DADOS DA BASE (não invente nada além disso):\n${JSON.stringify(body.leadContext, null, 2)}${ragBlock}`,
-      temperature: 0.15,
+      userPrompt: `DADOS DA BASE (não invente nada além disso):\n${JSON.stringify(body.leadContext, null, 2)}${ragBlock}${mistralBlock}${reinforceBlock}`,
+      temperature: reinforce ? 0.25 : 0.15,
     })
 
-    const insight = validateInsight(parsed, model)
+    const insight = validateInsight(
+      parsed,
+      reinforce && mistralBrief
+        ? `mistral→${model}`
+        : model,
+    )
 
+    const leadId = (body.leadContext as { lead?: { id_lead?: number } })?.lead
+      ?.id_lead
+
+    // Gemini = geração final do insight
     await logAiUsage({
       provider: 'gemini',
-      operation: 'lead_insight',
+      operation: reinforce ? 'lead_insight_reinforce' : 'lead_insight',
       model_name: model,
       units: 1,
-      estimated_cost_usd: 0.0025,
+      estimated_cost_usd: reinforce ? 0.003 : 0.0025,
       meta: {
         rag_chunks_used: ragChunks.length,
-        lead_id: (body.leadContext as { lead?: { id_lead?: number } })?.lead
-          ?.id_lead,
+        reinforce,
+        lead_id: leadId,
+        mistral_brief: Boolean(mistralBrief),
+        pipeline: reinforce ? 'mistral_rag->gemini' : 'gemini',
       },
     })
+
+    // Mistral embed da query RAG
+    let mistralEmbedCostUsd = 0
+    if (queryEmbedded) {
+      mistralEmbedCostUsd = 0.0001
+      await logAiUsage({
+        provider: 'mistral',
+        operation: 'lead_insight_rag',
+        model_name: Deno.env.get('MISTRAL_EMBED_MODEL') || 'mistral-embed',
+        units: 1,
+        estimated_cost_usd: mistralEmbedCostUsd,
+        meta: {
+          rag_chunks_used: ragChunks.length,
+          lead_id: leadId,
+        },
+      })
+    }
+
+    const mistralCostUsd = mistralEmbedCostUsd + mistralChatCostUsd
 
     return jsonResponse({
       ...insight,
       raw_response: raw,
       rag_chunks_used: ragChunks.length,
+      reinforced: reinforce,
+      pipeline: reinforce ? 'mistral_rag->gemini' : 'gemini',
+      mistral_brief_used: Boolean(mistralBrief),
+      mistral_model: mistralChatModel,
+      estimated_cost: {
+        gemini_usd: reinforce ? 0.003 : 0.0025,
+        mistral_usd: mistralCostUsd,
+      },
     })
   } catch (error) {
     return jsonResponse(

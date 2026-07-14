@@ -1,6 +1,7 @@
 import type { DragEvent } from 'react'
 import { Eye } from 'lucide-react'
 import { IconBubble } from '../ui/IconBubble'
+import { LeadIdBadge, NegocioIdBadge } from '../ui/IdBadge'
 import { LeadAvatar } from '../ui/LeadAvatar'
 import type { NegocioWithLead } from '../../lib/negocios'
 
@@ -56,9 +57,10 @@ export function NegocioKanbanCard({
               <p className="mt-0.5 truncate text-xs font-semibold text-zinc-600">
                 {leadName}
               </p>
-              <p className="mt-0.5 text-[11px] text-zinc-400">
-                {negocio.codigo || '—'} · LED-{negocio.id_lead}
-              </p>
+              <div className="mt-1 flex flex-wrap items-center gap-1">
+                <NegocioIdBadge codigo={negocio.codigo} />
+                <LeadIdBadge id={negocio.id_lead} />
+              </div>
             </div>
             <span
               className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${

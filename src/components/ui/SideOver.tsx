@@ -3,7 +3,7 @@ import { X } from 'lucide-react'
 
 type SideOverProps = {
   title: string
-  subtitle?: string
+  subtitle?: ReactNode
   onClose: () => void
   children: ReactNode
   footer?: ReactNode
@@ -52,8 +52,8 @@ export function SideOver({
             <h2 className="truncate text-xl font-extrabold text-liqui-navy">
               {title}
             </h2>
-            {subtitle && (
-              <p className="mt-0.5 truncate text-sm text-zinc-500">{subtitle}</p>
+            {subtitle != null && subtitle !== '' && (
+              <div className="mt-1 text-sm text-zinc-500">{subtitle}</div>
             )}
             {headerExtra}
           </div>

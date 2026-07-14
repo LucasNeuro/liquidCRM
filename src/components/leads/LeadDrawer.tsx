@@ -4,8 +4,10 @@ import {
   Bot,
   BriefcaseBusiness,
   Clock3,
+  Copy,
   MessageCircle,
   Plus,
+  RefreshCw,
   Sparkles,
   Trash2,
 } from 'lucide-react'
@@ -37,7 +39,10 @@ import type {
   TentativaCompra,
 } from '../../lib/types'
 import { NegocioFormSideOver } from '../negocios/NegocioFormSideOver'
+import { formatCellValue, formatDateTimeBr } from '../../lib/format'
+import { LeadIdBadge, NegocioIdBadge } from '../ui/IdBadge'
 import { LeadAvatar } from '../ui/LeadAvatar'
+import { GeminiIcon } from '../ui/LlmIcons'
 import { MarkdownViewer } from '../ui/MarkdownViewer'
 import { Modal } from '../ui/Modal'
 import { SideOver } from '../ui/SideOver'
@@ -64,6 +69,8 @@ export function LeadDrawer({
   const relatedRespostas = matchRespostasDetailed(lead, respostas)
   const [tab, setTab] = useState<TabId>('negocios')
   const [insight, setInsight] = useState<LeadInsight | null>(null)
+  const [lastRagChunks, setLastRagChunks] = useState<number | null>(null)
+  const [copyFlash, setCopyFlash] = useState<string | null>(null)
   const [timeline, setTimeline] = useState<LeadInsight[]>([])
   const [viewing, setViewing] = useState<LeadInsight | null>(null)
   const [negocios, setNegocios] = useState<Negocio[]>([])
@@ -143,7 +150,11 @@ export function LeadDrawer({
     }
   }
 
-  async function handleInsight() {
+  async function handleInsight(opts?: {
+    reinforce?: boolean
+    from?: LeadInsight | null
+  }) {
+    const base = opts?.from || insight || viewing
     setLoadingInsight(true)
     setError(null)
     setTab('insight')
@@ -152,19 +163,60 @@ export function LeadDrawer({
         lead,
         relatedTentativas,
         relatedRespostas,
+        negocios,
       )
-      const result = await generateLeadInsight(leadContext)
+      const result = await generateLeadInsight(leadContext, {
+        reinforce: Boolean(opts?.reinforce && base),
+        previousInsight: opts?.reinforce && base
+          ? {
+              titulo: base.titulo,
+              resumo: base.resumo,
+              proximo_passo: base.proximo_passo,
+              riscos: base.riscos,
+              evidencias: base.evidencias,
+              markdown: base.markdown,
+            }
+          : undefined,
+      })
       const saved = await persistLeadInsight({
         idLead: lead.id_lead,
         insight: result,
       })
       setInsight(saved)
+      setLastRagChunks(
+        typeof result.rag_chunks_used === 'number'
+          ? result.rag_chunks_used
+          : null,
+      )
       await loadInsights()
-      setTab('timeline')
+      if (opts?.reinforce) {
+        setViewing(saved)
+      } else {
+        setTab('timeline')
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao gerar insight')
     } finally {
       setLoadingInsight(false)
+    }
+  }
+
+  async function handleCopyInsight(item: LeadInsight) {
+    const text =
+      item.markdown?.trim() ||
+      [
+        item.titulo || 'Insight',
+        '',
+        item.resumo,
+        '',
+        `Próximo passo: ${item.proximo_passo}`,
+      ].join('\n')
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopyFlash('Insight copiado')
+      setTimeout(() => setCopyFlash(null), 2000)
+    } catch {
+      setError('Não foi possível copiar (permissão do navegador)')
     }
   }
 
@@ -223,7 +275,12 @@ export function LeadDrawer({
     <>
       <SideOver
         title={lead.nome}
-        subtitle={`${lead.telefone || lead.email || 'sem contato'} · LED-${String(lead.id_lead).padStart(4, '0')}`}
+        subtitle={
+          <span className="inline-flex flex-wrap items-center gap-1.5">
+            <span>{lead.telefone || lead.email || 'sem contato'}</span>
+            <LeadIdBadge id={lead.id_lead} />
+          </span>
+        }
         onClose={onClose}
         widthClass="max-w-xl"
         headerExtra={
@@ -249,80 +306,99 @@ export function LeadDrawer({
           </div>
         }
         footer={
-          tab === 'negocios' ? (
-            <button
-              type="button"
-              onClick={() => setShowCreateNegocio(true)}
-              disabled={!negPipelineId || negStages.length === 0}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-liqui-orange px-4 py-3 text-sm font-bold text-white disabled:opacity-60"
-            >
-              <Plus className="h-4 w-4" />
-              Novo negócio neste lead
-            </button>
-          ) : tab === 'resumo' ? (
-            <div className="flex flex-col gap-2">
+          <div className="space-y-3">
+            {tab === 'negocios' ? (
               <button
                 type="button"
-                disabled={saving}
-                onClick={() => void handleSaveLead()}
-                className="w-full rounded-xl bg-liqui-orange px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60"
+                onClick={() => setShowCreateNegocio(true)}
+                disabled={!negPipelineId || negStages.length === 0}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-liqui-orange px-4 py-3 text-sm font-bold text-white disabled:opacity-60"
               >
-                {saving ? 'Salvando…' : 'Salvar dados'}
+                <Plus className="h-4 w-4" />
+                Novo negócio neste lead
               </button>
-              <div className="flex gap-2">
+            ) : tab === 'resumo' ? (
+              <div className="flex flex-col gap-2">
                 <button
                   type="button"
                   disabled={saving}
-                  onClick={() => void handleArchive()}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-600"
+                  onClick={() => void handleSaveLead()}
+                  className="w-full rounded-xl bg-liqui-orange px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60"
                 >
-                  <Archive className="h-3.5 w-3.5" />
-                  Arquivar
+                  {saving ? 'Salvando…' : 'Salvar dados'}
                 </button>
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => void handleDelete()}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Excluir
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void handleArchive()}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-600"
+                  >
+                    <Archive className="h-3.5 w-3.5" />
+                    Arquivar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void handleDelete()}
+                    className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Excluir
+                  </button>
+                </div>
               </div>
-            </div>
-          ) : tab === 'timeline' ? (
-            <button
-              type="button"
-              onClick={() => void handleInsight()}
-              disabled={loadingInsight}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-liqui-navy px-4 py-3 text-sm font-bold text-white disabled:opacity-60"
-            >
-              <Sparkles className="h-4 w-4 text-liqui-orange" />
-              {loadingInsight ? 'Gerando…' : 'Novo insight (Gemini)'}
-            </button>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={() => void handleClassify()}
-                disabled={loadingClassify}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-liqui-navy/20 bg-white px-4 py-2.5 text-sm font-bold text-liqui-navy disabled:opacity-60"
-              >
-                {loadingClassify ? 'Classificando…' : 'Classificar (Gemini)'}
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleInsight()}
-                disabled={loadingInsight}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-liqui-navy px-4 py-3 text-sm font-bold text-white disabled:opacity-60"
-              >
-                <Sparkles className="h-4 w-4 text-liqui-orange" />
-                {loadingInsight
-                  ? 'Gerando e salvando…'
-                  : 'Gerar insight por IA (Gemini)'}
-              </button>
-            </div>
-          )
+            ) : (
+              <div className="flex flex-col gap-2">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleClassify()}
+                    disabled={loadingClassify}
+                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-liqui-navy/20 bg-white px-3 py-2.5 text-sm font-bold text-liqui-navy disabled:opacity-60"
+                  >
+                    {loadingClassify ? 'Classificando…' : 'Classificar'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleInsight()}
+                    disabled={loadingInsight}
+                    className="inline-flex flex-[1.4] items-center justify-center gap-2 rounded-xl bg-liqui-navy px-3 py-2.5 text-sm font-bold text-white disabled:opacity-60"
+                  >
+                    <Sparkles className="h-4 w-4 text-liqui-orange" />
+                    {loadingInsight ? 'Gerando…' : 'Gerar insight'}
+                  </button>
+                </div>
+                {(tab === 'insight' || tab === 'timeline') && insight && (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleCopyInsight(insight)}
+                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-liqui-navy"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                      Copiar
+                    </button>
+                    <button
+                      type="button"
+                      disabled={loadingInsight}
+                      onClick={() =>
+                        void handleInsight({ reinforce: true, from: insight })
+                      }
+                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-liqui-orange/40 bg-liqui-orange-soft px-3 py-2 text-sm font-semibold text-liqui-navy disabled:opacity-60"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      Aprofundar
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            <p className="flex items-center justify-center gap-1.5 text-[10px] text-zinc-400">
+              <GeminiIcon className="h-3.5 w-3.5" />
+              Powered by Gemini
+            </p>
+          </div>
         }
       >
         <div className="mb-4 flex gap-1 overflow-x-auto rounded-xl bg-zinc-100 p-1">
@@ -377,7 +453,9 @@ export function LeadDrawer({
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold text-liqui-navy">{n.titulo}</p>
-                      <p className="text-[11px] text-zinc-400">{n.codigo}</p>
+                      <div className="mt-0.5">
+                        <NegocioIdBadge codigo={n.codigo} />
+                      </div>
                       <p className="mt-1 text-sm font-bold text-liqui-navy">
                         R${' '}
                         {Number(n.valor || 0).toLocaleString('pt-BR', {
@@ -442,7 +520,7 @@ export function LeadDrawer({
             <p className="rounded-xl bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
               Consolidação das 3 abas da base. Preferência:{' '}
               <strong>id_lead</strong>; fallback: e-mail → telefone (últimos 8) →
-              nome. Datas e NULLs são exibidos como estão (sem inventar).
+              nome. Datas no padrão Brasília (pt-BR).
             </p>
 
             <section>
@@ -471,7 +549,7 @@ export function LeadDrawer({
                       </div>
                       <p className="mt-1 text-xs text-zinc-500">
                         {t.status_pagamento || '—'} · {t.forma_pagamento || '—'}{' '}
-                        · {t.data_tentativa || '—'}
+                        · {formatCellValue(t.data_tentativa, 'data_tentativa')}
                       </p>
                     </li>
                   ))}
@@ -503,7 +581,8 @@ export function LeadDrawer({
                       </div>
                       <p className="mt-1 text-xs text-zinc-500">
                         {r.area_interesse || '—'} · nota{' '}
-                        {r.nota_intencao ?? '—'} · {r.data_resposta || '—'}
+                        {r.nota_intencao ?? '—'} ·{' '}
+                        {formatCellValue(r.data_resposta, 'data_resposta')}
                       </p>
                     </li>
                   ))}
@@ -522,19 +601,23 @@ export function LeadDrawer({
                 </span>
                 <div>
                   <h3 className="text-sm font-extrabold text-liqui-navy">
-                    Insight por IA (Gemini)
+                    Insight por IA
                   </h3>
                   <p className="mt-1 text-xs text-zinc-600">
-                    Só dados da base — sem inventar. Contexto:{' '}
-                    {relatedTentativas.length} tentativa(s) +{' '}
-                    {relatedRespostas.length} pesquisa(s).
+                    Cruzamento: lead · {relatedTentativas.length} tentativa(s) ·{' '}
+                    {relatedRespostas.length} pesquisa(s) · {negocios.length}{' '}
+                    negócio(s)
+                    {lastRagChunks != null
+                      ? ` · ${lastRagChunks} trecho(s) RAG`
+                      : ''}
+                    .
                   </p>
                 </div>
               </div>
             </div>
-            {classifyMsg && (
+            {(classifyMsg || copyFlash) && (
               <p className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                {classifyMsg}
+                {copyFlash || classifyMsg}
               </p>
             )}
             {insight ? (
@@ -590,14 +673,13 @@ export function LeadDrawer({
                   Abrir Markdown completo
                 </button>
                 <p className="text-center text-[11px] text-zinc-400">
-                  {insight.model_name} · {formatDate(insight.created_at)} ·
-                  salvo no lead
+                  {formatDate(insight.created_at)} · salvo no lead
                 </p>
               </div>
             ) : (
               !loadingInsight && (
                 <p className="rounded-xl border border-dashed border-zinc-200 px-4 py-8 text-center text-sm text-zinc-500">
-                  Gere o insight no botão abaixo — será vinculado a este lead.
+                  Use Classificar / Gerar insight no rodapé do painel.
                 </p>
               )
             )}
@@ -648,6 +730,31 @@ export function LeadDrawer({
           title={viewing.titulo || 'Insight'}
           subtitle={`${viewing.model_name} · ${formatDate(viewing.created_at)} · vinculado ao lead`}
           onClose={() => setViewing(null)}
+          footer={
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void handleCopyInsight(viewing)}
+                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-liqui-navy"
+              >
+                <Copy className="h-4 w-4" />
+                {copyFlash ? 'Copiado!' : 'Copiar insight'}
+              </button>
+              <button
+                type="button"
+                disabled={loadingInsight}
+                onClick={() =>
+                  void handleInsight({ reinforce: true, from: viewing })
+                }
+                className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-liqui-navy px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60"
+              >
+                <RefreshCw
+                  className={`h-4 w-4 text-liqui-orange ${loadingInsight ? 'animate-spin' : ''}`}
+                />
+                {loadingInsight ? 'Aprofundando…' : 'Aprofundar análise'}
+              </button>
+            </div>
+          }
         >
           <MarkdownViewer markdown={viewing.markdown || viewing.resumo} />
         </Modal>
@@ -667,10 +774,7 @@ export function LeadDrawer({
 }
 
 function formatDate(value?: string) {
-  if (!value) return '—'
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return value
-  return d.toLocaleString('pt-BR')
+  return formatDateTimeBr(value)
 }
 
 function LeadField({

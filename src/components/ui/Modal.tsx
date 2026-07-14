@@ -7,9 +7,17 @@ type Props = {
   onClose: () => void
   children: ReactNode
   wide?: boolean
+  footer?: ReactNode
 }
 
-export function Modal({ title, subtitle, onClose, children, wide }: Props) {
+export function Modal({
+  title,
+  subtitle,
+  onClose,
+  children,
+  wide,
+  footer,
+}: Props) {
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
       <button
@@ -41,6 +49,11 @@ export function Modal({ title, subtitle, onClose, children, wide }: Props) {
           </button>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        {footer && (
+          <footer className="shrink-0 border-t border-zinc-100 bg-zinc-50/80 px-5 py-3">
+            {footer}
+          </footer>
+        )}
       </div>
     </div>
   )

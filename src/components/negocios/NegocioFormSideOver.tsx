@@ -99,7 +99,7 @@ export function NegocioFormSideOver({
             <option value="">Selecione…</option>
             {leads.map((l) => (
               <option key={l.id_lead} value={l.id_lead}>
-                {l.nome} (#{l.id_lead})
+                {l.nome} (LED-{String(l.id_lead).padStart(4, '0')})
               </option>
             ))}
           </select>

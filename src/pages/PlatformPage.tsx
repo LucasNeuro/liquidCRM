@@ -13,10 +13,12 @@ import {
 } from '../components/ui/CrmEntitySideOver'
 import { DataTable, type DataColumn } from '../components/ui/DataTable'
 import { IconBubble } from '../components/ui/IconBubble'
+import { UuidBadge } from '../components/ui/IdBadge'
 import { LlmIconBubble } from '../components/ui/LlmIcons'
 import { SideOver } from '../components/ui/SideOver'
 import { useShellHeader } from '../layouts/ShellContext'
 import { runEmbedCrmBatch } from '../lib/ai'
+import { formatDateTimeBr } from '../lib/format'
 import {
   fetchEmbeddingJobs,
   fetchEmbeddingStats,
@@ -68,7 +70,7 @@ function roleLabel(role: string) {
 export function PlatformPage() {
   const { setHeader } = useShellHeader()
   const [tab, setTab] = useState<MainTab>('visao')
-  const [view, setView] = useState<ViewMode>('paineis')
+  const [view, setView] = useState<ViewMode>('tabela')
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [jobs, setJobs] = useState<EmbeddingJob[]>([])
   const [totalChunks, setTotalChunks] = useState(0)
@@ -279,6 +281,11 @@ export function PlatformPage() {
 
   const userColumns: DataColumn<Profile>[] = [
     {
+      key: 'id',
+      label: 'ID',
+      render: (r) => <UuidBadge value={r.id} hint="user_id" />,
+    },
+    {
       key: 'nome',
       label: 'Nome',
       render: (r) => (
@@ -300,50 +307,15 @@ export function PlatformPage() {
       label: 'Status',
       render: (r) =>
         r.active === false ? (
-          <span className="text-xs font-semibold text-zinc-400">Inativo</span>
+          <span className="text-xs font-semibold text-amber-600">Pendente</span>
         ) : (
           <span className="text-xs font-semibold text-emerald-600">Ativo</span>
         ),
     },
-  ]
-
-  const jobColumns: DataColumn<EmbeddingJob>[] = [
     {
-      key: 'status',
-      label: 'Status',
-      render: (j) => (
-        <span
-          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-            j.status === 'success'
-              ? 'bg-emerald-50 text-emerald-700'
-              : j.status === 'error'
-                ? 'bg-red-50 text-red-600'
-                : 'bg-amber-50 text-amber-700'
-          }`}
-        >
-          {j.status}
-        </span>
-      ),
-    },
-    {
-      key: 'when',
-      label: 'Quando',
-      render: (j) => new Date(j.started_at).toLocaleString('pt-BR'),
-    },
-    {
-      key: 'trigger',
-      label: 'Origem',
-      render: (j) => j.trigger_source,
-    },
-    {
-      key: 'emb',
-      label: 'Indexados',
-      render: (j) => j.embedded_count,
-    },
-    {
-      key: 'cost',
-      label: 'Custo est.',
-      render: (j) => formatUsd(Number(j.estimated_cost_usd || 0)),
+      key: 'created_at',
+      label: 'Criado',
+      render: (r) => formatDateTimeBr(r.created_at),
     },
   ]
 
@@ -409,7 +381,7 @@ export function PlatformPage() {
           <MetricCard
             label="Custo Mistral"
             value={loading ? '…' : formatUsd(mistralCost)}
-            hint="embeddings + ações"
+            hint="indexação + RAG no insight"
             llm="mistral"
             progress={Math.min(100, mistralCost * 400)}
           />
@@ -448,30 +420,32 @@ export function PlatformPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="flex rounded-xl bg-white p-1 shadow-sm ring-1 ring-zinc-200">
-              <button
-                type="button"
-                onClick={() => setView('paineis')}
-                className={`rounded-lg px-3 py-1.5 text-xs font-bold ${
-                  view === 'paineis'
-                    ? 'bg-liqui-orange text-white'
-                    : 'text-zinc-500'
-                }`}
-              >
-                Painéis
-              </button>
-              <button
-                type="button"
-                onClick={() => setView('tabela')}
-                className={`rounded-lg px-3 py-1.5 text-xs font-bold ${
-                  view === 'tabela'
-                    ? 'bg-liqui-orange text-white'
-                    : 'text-zinc-500'
-                }`}
-              >
-                Tabela
-              </button>
-            </div>
+            {(tab === 'usuarios' || tab === 'visao') && (
+              <div className="flex rounded-xl bg-white p-1 shadow-sm ring-1 ring-zinc-200">
+                <button
+                  type="button"
+                  onClick={() => setView('paineis')}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold ${
+                    view === 'paineis'
+                      ? 'bg-liqui-orange text-white'
+                      : 'text-zinc-500'
+                  }`}
+                >
+                  Painéis
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setView('tabela')}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold ${
+                    view === 'tabela'
+                      ? 'bg-liqui-orange text-white'
+                      : 'text-zinc-500'
+                  }`}
+                >
+                  Tabela
+                </button>
+              </div>
+            )}
             {tab === 'usuarios' && (
               <button
                 type="button"
@@ -490,7 +464,7 @@ export function PlatformPage() {
                 className="inline-flex items-center gap-1.5 rounded-xl bg-liqui-navy px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
               >
                 <Play className="h-4 w-4 text-liqui-orange" />
-                {running ? 'Indexando…' : 'Rodar agora'}
+                {running ? 'Indexando…' : 'Rodar indexação'}
               </button>
             )}
           </div>
@@ -498,7 +472,18 @@ export function PlatformPage() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto p-5">
-        {tab === 'visao' && (
+        {tab === 'visao' &&
+          (view === 'tabela' ? (
+            <div className="min-h-[360px]">
+              <DataTable
+                columns={userColumns}
+                rows={profiles}
+                rowKey={(r) => r.id}
+                onRowClick={openEditUser}
+                emptyMessage="Nenhum usuário"
+              />
+            </div>
+          ) : (
           <div className="grid gap-4 lg:grid-cols-2">
             <section className="rounded-2xl border border-zinc-200 bg-liqui-navy p-5 text-white shadow-sm">
               <div className="mb-4 flex items-center gap-2">
@@ -557,29 +542,27 @@ export function PlatformPage() {
                 </div>
               ))}
             </section>
-
-            {view === 'tabela' && (
-              <div className="lg:col-span-2 min-h-[280px]">
-                <DataTable
-                  columns={jobColumns}
-                  rows={jobs.slice(0, 10)}
-                  rowKey={(j) => j.id}
-                  onRowClick={setJobDetail}
-                  emptyMessage="Nenhuma indexação ainda"
-                />
-              </div>
-            )}
           </div>
-        )}
+          ))}
 
         {tab === 'usuarios' && (
           <div className="flex h-full min-h-[360px] flex-col gap-3">
             <p className="text-sm text-zinc-500">
-              Crie consultores de vendas e defina o cargo (
-              <strong>owner</strong> ou <strong>consultor</strong>). Só{' '}
-              <strong>owner</strong> vê esta aba.
+              Cadastros públicos ficam <strong>pendentes</strong> até você
+              ativar e definir o cargo (<strong>owner</strong> ou{' '}
+              <strong>consultor</strong>). Só owner vê esta aba.
             </p>
-            {view === 'paineis' ? (
+            {view === 'tabela' ? (
+              <div className="min-h-0 flex-1">
+                <DataTable
+                  columns={userColumns}
+                  rows={profiles}
+                  rowKey={(r) => r.id}
+                  onRowClick={openEditUser}
+                  emptyMessage="Nenhum usuário"
+                />
+              </div>
+            ) : (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {profiles.map((p) => (
                   <button
@@ -605,9 +588,13 @@ export function PlatformPage() {
                           <span className="rounded-full bg-liqui-orange-soft px-2 py-0.5 text-[10px] font-bold uppercase text-liqui-navy">
                             {roleLabel(p.role)}
                           </span>
-                          {p.active === false && (
-                            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-bold uppercase text-zinc-500">
-                              Inativo
+                          {p.active === false ? (
+                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-700">
+                              Pendente
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-700">
+                              Ativo
                             </span>
                           )}
                         </div>
@@ -619,16 +606,6 @@ export function PlatformPage() {
                   <p className="text-sm text-zinc-400">Nenhum perfil.</p>
                 )}
               </div>
-            ) : (
-              <div className="min-h-0 flex-1">
-                <DataTable
-                  columns={userColumns}
-                  rows={profiles}
-                  rowKey={(r) => r.id}
-                  onRowClick={openEditUser}
-                  emptyMessage="Nenhum usuário"
-                />
-              </div>
             )}
           </div>
         )}
@@ -636,76 +613,52 @@ export function PlatformPage() {
         {tab === 'indexacoes' && (
           <div className="flex h-full min-h-[360px] flex-col gap-3">
             <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-extrabold text-liqui-navy">
-                    Índice RAG (pgvector + Mistral)
-                  </h3>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    Agenda sugerida: diário às 18:00 · última rodada e custo por
-                    job abaixo
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  disabled={running || missingSchema}
-                  onClick={() => void handleRun()}
-                  className="inline-flex items-center gap-2 rounded-xl bg-liqui-navy px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
-                >
-                  <Play className="h-4 w-4 text-liqui-orange" />
-                  {running ? 'Indexando…' : 'Rodar indexação'}
-                </button>
-              </div>
+              <h3 className="text-sm font-extrabold text-liqui-navy">
+                Índice RAG (pgvector + Mistral)
+              </h3>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                Só as 3 tabelas de análise: <code>leads</code>,{' '}
+                <code>tentativas_compra</code> e{' '}
+                <code>respostas_pesquisa</code>. Agenda 18:00 · botão acima para
+                rodar agora.
+              </p>
             </div>
 
-            {view === 'paineis' ? (
-              <ul className="space-y-2">
-                {jobs.map((j) => (
-                  <li key={j.id}>
-                    <button
-                      type="button"
-                      onClick={() => setJobDetail(j)}
-                      className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-left shadow-sm hover:border-liqui-orange/30"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                            j.status === 'success'
-                              ? 'bg-emerald-50 text-emerald-700'
-                              : j.status === 'error'
-                                ? 'bg-red-50 text-red-600'
-                                : 'bg-amber-50 text-amber-700'
-                          }`}
-                        >
-                          {j.status}
-                        </span>
-                        <span className="text-[11px] text-zinc-400">
-                          {new Date(j.started_at).toLocaleString('pt-BR')} ·{' '}
-                          {j.trigger_source}
-                        </span>
-                      </div>
-                      <p className="mt-1 text-sm text-zinc-600">
-                        {j.embedded_count} indexados · {j.skipped_count}{' '}
-                        ignorados · {formatUsd(Number(j.estimated_cost_usd || 0))}
-                      </p>
-                    </button>
-                  </li>
-                ))}
-                {jobs.length === 0 && (
-                  <p className="text-sm text-zinc-400">Nenhum job ainda.</p>
-                )}
-              </ul>
-            ) : (
-              <div className="min-h-0 flex-1">
-                <DataTable
-                  columns={jobColumns}
-                  rows={jobs}
-                  rowKey={(j) => j.id}
-                  onRowClick={setJobDetail}
-                  emptyMessage="Nenhum job"
-                />
-              </div>
-            )}
+            <ul className="space-y-2">
+              {jobs.map((j) => (
+                <li key={j.id}>
+                  <button
+                    type="button"
+                    onClick={() => setJobDetail(j)}
+                    className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-left shadow-sm hover:border-liqui-orange/30"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                          j.status === 'success'
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : j.status === 'error'
+                              ? 'bg-red-50 text-red-600'
+                              : 'bg-amber-50 text-amber-700'
+                        }`}
+                      >
+                        {j.status}
+                      </span>
+                      <span className="text-[11px] text-zinc-400">
+                        {formatDateTimeBr(j.started_at)} · {j.trigger_source}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-sm text-zinc-600">
+                      {j.embedded_count} indexados · {j.skipped_count}{' '}
+                      ignorados · {formatUsd(Number(j.estimated_cost_usd || 0))}
+                    </p>
+                  </button>
+                </li>
+              ))}
+              {jobs.length === 0 && (
+                <p className="text-sm text-zinc-400">Nenhum job ainda.</p>
+              )}
+            </ul>
           </div>
         )}
 
@@ -810,8 +763,12 @@ export function PlatformPage() {
                     onChange={(e) => setFormActive(e.target.checked)}
                     className="rounded border-zinc-300"
                   />
-                  Conta ativa
+                  Conta ativa (libera acesso ao CRM)
                 </label>
+                <p className="text-xs text-zinc-500">
+                  Sem esta opção marcada, o usuário fica em “Acesso pendente”
+                  mesmo com e-mail confirmado.
+                </p>
                 <button
                   type="button"
                   disabled={saving}
@@ -841,15 +798,11 @@ export function PlatformPage() {
             <Row label="Status" value={jobDetail.status} />
             <Row
               label="Início"
-              value={new Date(jobDetail.started_at).toLocaleString('pt-BR')}
+              value={formatDateTimeBr(jobDetail.started_at)}
             />
             <Row
               label="Fim"
-              value={
-                jobDetail.finished_at
-                  ? new Date(jobDetail.finished_at).toLocaleString('pt-BR')
-                  : '—'
-              }
+              value={formatDateTimeBr(jobDetail.finished_at)}
             />
             <Row label="Indexados" value={String(jobDetail.embedded_count)} />
             <Row label="Ignorados" value={String(jobDetail.skipped_count)} />

@@ -14,11 +14,14 @@ import {
   GaugeCard,
 } from '../components/ui/DashCharts'
 import { DataTable, type DataColumn } from '../components/ui/DataTable'
+import { LeadIdBadge } from '../components/ui/IdBadge'
 import { IconBubble } from '../components/ui/IconBubble'
 import { checkAiProxyHealth } from '../lib/ai'
-import { fetchLeads } from '../lib/leads'
+import { formatDateTimeBr } from '../lib/format'
+import { fetchLeads, fetchRecentInsights } from '../lib/leads'
+import { fetchProfiles, type Profile } from '../lib/profiles'
 import { fetchTentativas } from '../lib/tentativas'
-import type { Lead, TentativaCompra } from '../lib/types'
+import type { Lead, LeadInsight, TentativaCompra } from '../lib/types'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { useShellHeader } from '../layouts/ShellContext'
@@ -51,6 +54,8 @@ export function DashboardPage() {
   const [view, setView] = useState<'paineis' | 'tabela'>('paineis')
   const [leads, setLeads] = useState<Lead[]>([])
   const [tentativas, setTentativas] = useState<TentativaCompra[]>([])
+  const [recentInsights, setRecentInsights] = useState<LeadInsight[]>([])
+  const [consultores, setConsultores] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
   const [resumo, setResumo] = useState<{
     total_leads: number
@@ -63,14 +68,23 @@ export function DashboardPage() {
   const load = useCallback(async () => {
     setLoading(true)
     void checkAiProxyHealth().then((h) => setProxyOk(Boolean(h.ok)))
-    const [resumoRes, leadsList, tentList] = await Promise.all([
-      supabase.from('v_crm_resumo').select('*').maybeSingle(),
-      fetchLeads().catch(() => [] as Lead[]),
-      fetchTentativas().catch(() => [] as TentativaCompra[]),
-    ])
+    const [resumoRes, leadsList, tentList, insightsList, profilesList] =
+      await Promise.all([
+        supabase.from('v_crm_resumo').select('*').maybeSingle(),
+        fetchLeads().catch(() => [] as Lead[]),
+        fetchTentativas().catch(() => [] as TentativaCompra[]),
+        fetchRecentInsights(8).catch(() => [] as LeadInsight[]),
+        fetchProfiles().catch(() => [] as Profile[]),
+      ])
     if (resumoRes.data) setResumo(resumoRes.data)
     setLeads(leadsList)
     setTentativas(tentList)
+    setRecentInsights(insightsList)
+    setConsultores(
+      profilesList.filter(
+        (p) => p.role === 'consultor' && p.active !== false,
+      ),
+    )
     setLoading(false)
   }, [])
 
@@ -175,6 +189,12 @@ export function DashboardPage() {
     ]
   }, [withIa, leads.length])
 
+  const leadNameById = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const l of leads) map.set(l.id_lead, l.nome)
+    return map
+  }, [leads])
+
   const leadColumns: DataColumn<Lead>[] = [
     {
       key: 'nome',
@@ -182,6 +202,11 @@ export function DashboardPage() {
       render: (r) => (
         <span className="font-semibold text-liqui-navy">{r.nome}</span>
       ),
+    },
+    {
+      key: 'id_lead',
+      label: 'ID',
+      render: (r) => <LeadIdBadge id={r.id_lead} />,
     },
     { key: 'telefone', label: 'Telefone', render: (r) => r.telefone || '—' },
     { key: 'email', label: 'E-mail', render: (r) => r.email || '—' },
@@ -430,6 +455,107 @@ export function DashboardPage() {
                         {user?.email} · Gemini + Mistral ·{' '}
                         {proxyOk ? 'online' : 'checar gateway'}
                       </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-zinc-400">
+                          Últimos insights
+                        </p>
+                        <Link
+                          to="/leads"
+                          className="text-[11px] font-semibold text-liqui-orange"
+                        >
+                          Ver leads
+                        </Link>
+                      </div>
+                      {recentInsights.length === 0 ? (
+                        <p className="rounded-xl bg-zinc-50 px-3 py-4 text-xs text-zinc-500">
+                          Nenhum insight gerado ainda.
+                        </p>
+                      ) : (
+                        <ul className="max-h-52 space-y-1.5 overflow-y-auto">
+                          {recentInsights.map((ins) => {
+                            const nome =
+                              (ins.id_lead != null
+                                ? leadNameById.get(ins.id_lead)
+                                : null) || `Lead #${ins.id_lead ?? '—'}`
+                            const titulo =
+                              ins.titulo?.trim() ||
+                              ins.resumo.slice(0, 72) ||
+                              'Insight'
+                            return (
+                              <li key={ins.id || `${ins.id_lead}-${ins.created_at}`}>
+                                <Link
+                                  to="/leads"
+                                  className="block rounded-xl border border-zinc-100 bg-zinc-50/80 px-3 py-2 transition hover:border-liqui-orange/30 hover:bg-liqui-orange-soft/40"
+                                >
+                                  <div className="flex items-start justify-between gap-2">
+                                    <p className="truncate text-xs font-bold text-liqui-navy">
+                                      {nome}
+                                    </p>
+                                    <span className="shrink-0 text-[10px] text-zinc-400">
+                                      {formatDateTimeBr(ins.created_at)}
+                                    </span>
+                                  </div>
+                                  <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-zinc-600">
+                                    {titulo}
+                                  </p>
+                                </Link>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
+                    </div>
+
+                    <div>
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-zinc-400">
+                          Consultores ativos
+                        </p>
+                        {isOwner && (
+                          <Link
+                            to="/plataforma"
+                            className="text-[11px] font-semibold text-liqui-orange"
+                          >
+                            Gerenciar
+                          </Link>
+                        )}
+                      </div>
+                      {consultores.length === 0 ? (
+                        <p className="rounded-xl bg-zinc-50 px-3 py-4 text-xs text-zinc-500">
+                          Nenhum consultor ativo.
+                        </p>
+                      ) : (
+                        <div className="max-h-52 overflow-auto rounded-xl border border-zinc-100">
+                          <table className="w-full text-left text-xs">
+                            <thead className="sticky top-0 bg-zinc-50 text-[10px] uppercase tracking-wide text-zinc-400">
+                              <tr>
+                                <th className="px-3 py-2 font-bold">Nome</th>
+                                <th className="px-3 py-2 font-bold">E-mail</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {consultores.map((c) => (
+                                <tr
+                                  key={c.id}
+                                  className="border-t border-zinc-100"
+                                >
+                                  <td className="px-3 py-2 font-semibold text-liqui-navy">
+                                    {c.full_name || '—'}
+                                  </td>
+                                  <td className="truncate px-3 py-2 text-zinc-500">
+                                    {c.email || '—'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </section>

@@ -101,8 +101,11 @@ const server = createServer(async (req, res) => {
       if (!body.leadContext) {
         return sendJson(res, 400, { error: 'leadContext é obrigatório' })
       }
-      const result = await generateInsightPlaybook(body.leadContext)
-      return sendJson(res, 200, result)
+      const result = await generateInsightPlaybook(body.leadContext, {
+        reinforce: Boolean(body.reinforce),
+        previousInsight: body.previousInsight,
+      })
+      return sendJson(res, 200, { ...result, reinforced: Boolean(body.reinforce) })
     }
 
     if (req.method === 'POST' && url.pathname === '/ai/embed-batch') {

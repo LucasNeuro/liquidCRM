@@ -5,6 +5,7 @@ import {
 } from './matching'
 import type {
   Lead,
+  Negocio,
   RespostaPesquisa,
   TentativaCompra,
 } from './types'
@@ -171,6 +172,46 @@ export async function fetchLeadInsights(idLead: number) {
   return (data ?? []).map(mapInsightRow)
 }
 
+/** IDs de leads que já têm pelo menos um insight salvo. */
+export async function fetchLeadIdsWithInsights() {
+  const { data, error } = await supabase
+    .from('lead_insights')
+    .select('id_lead')
+    .not('id_lead', 'is', null)
+
+  if (error) {
+    if (/lead_insights|does not exist/i.test(error.message)) return new Set<number>()
+    throw new Error(error.message)
+  }
+
+  const ids = new Set<number>()
+  for (const row of data ?? []) {
+    const id = Number((row as { id_lead: number }).id_lead)
+    if (Number.isFinite(id)) ids.add(id)
+  }
+  return ids
+}
+
+/** Insights mais recentes (hub / dashboard). */
+export async function fetchRecentInsights(limit = 8) {
+  const { data, error } = await supabase
+    .from('lead_insights')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (error) {
+    if (/lead_insights|does not exist/i.test(error.message)) return []
+    throw new Error(error.message)
+  }
+
+  return (data ?? []).map(mapInsightRow)
+}
+
+export function isLeadClassified(lead: Lead) {
+  return lead.score_gemini != null || Boolean(lead.intent_gemini)
+}
+
 function mapInsightRow(data: Record<string, unknown>) {
   const resumo = String(data.resumo || '')
   const proximo_passo = String(data.proximo_passo || '')
@@ -285,7 +326,37 @@ export function buildLeadContextPayload(
   lead: Lead,
   tentativas: TentativaCompra[],
   respostas: RespostaPesquisa[],
+  negocios: Negocio[] = [],
 ) {
+  const objecoes = [
+    ...new Set(
+      respostas
+        .map((r) => r.principal_objecao)
+        .filter((v): v is string => Boolean(v && String(v).trim())),
+    ),
+  ]
+  const statusPagamentos = [
+    ...new Set(
+      tentativas
+        .map((t) => t.status_pagamento)
+        .filter((v): v is string => Boolean(v && String(v).trim())),
+    ),
+  ]
+  const momentos = [
+    ...new Set(
+      respostas
+        .map((r) => r.momento_compra)
+        .filter((v): v is string => Boolean(v && String(v).trim())),
+    ),
+  ]
+  const valorTotalTentativas = tentativas.reduce(
+    (acc, t) => acc + Number(t.valor ?? 0),
+    0,
+  )
+  const valorPipeline = negocios
+    .filter((n) => n.status_negocio === 'aberto')
+    .reduce((acc, n) => acc + Number(n.valor || 0), 0)
+
   return {
     lead: {
       id_lead: lead.id_lead,
@@ -298,21 +369,52 @@ export function buildLeadContextPayload(
       data_entrada: lead.data_entrada,
       score_gemini: lead.score_gemini,
       intent_gemini: lead.intent_gemini,
+      labels_gemini: lead.labels_gemini ?? [],
+      pipeline_id: lead.pipeline_id ?? null,
+      stage_id: lead.stage_id ?? null,
     },
     tentativas_compra: tentativas.map((t) => ({
+      id: t.id,
       produto: t.produto,
       valor: t.valor,
       forma_pagamento: t.forma_pagamento,
       status_pagamento: t.status_pagamento,
       data_tentativa: t.data_tentativa,
+      match_by: 'match_by' in t ? (t as { match_by?: string }).match_by ?? null : null,
     })),
     respostas_pesquisa: respostas.map((r) => ({
+      id: r.id,
       momento_compra: r.momento_compra,
       principal_objecao: r.principal_objecao,
       area_interesse: r.area_interesse,
       nota_intencao: r.nota_intencao,
       data_resposta: r.data_resposta,
+      match_by: 'match_by' in r ? (r as { match_by?: string }).match_by ?? null : null,
     })),
+    negocios: negocios.map((n) => ({
+      id: n.id,
+      codigo: n.codigo,
+      titulo: n.titulo,
+      valor: n.valor,
+      status_negocio: n.status_negocio,
+      pipeline_id: n.pipeline_id,
+      stage_id: n.stage_id,
+      created_at: n.created_at,
+      updated_at: n.updated_at,
+    })),
+    cruzamento: {
+      qtd_tentativas: tentativas.length,
+      qtd_respostas: respostas.length,
+      qtd_negocios: negocios.length,
+      tem_score_ia: lead.score_gemini != null,
+      tem_intent_ia: Boolean(lead.intent_gemini),
+      objecoes_unicas: objecoes,
+      status_pagamento_unicos: statusPagamentos,
+      momentos_unicos: momentos,
+      valor_total_tentativas: valorTotalTentativas,
+      valor_pipeline_aberto: valorPipeline,
+      produto_interesse_lead: lead.produto_interesse || null,
+    },
   }
 }
 

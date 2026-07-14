@@ -31,23 +31,35 @@ export function GeminiIcon({ className = 'h-5 w-5', title }: SvgProps) {
 }
 
 /**
- * Marca Mistral AI (emblema geométrico laranja reconhecível).
- * Caminho baseado no pictograma público da marca.
+ * Emblema oficial Mistral AI (pixel / “M” em barras).
+ * Cores do brand kit: gold → #ffaf00 → #ff8205 → #fa500f → #e10500.
  */
 export function MistralIcon({ className = 'h-5 w-5', title }: SvgProps) {
   return (
     <svg
-      viewBox="0 0 24 24"
+      viewBox="90.909 90.909 212.122 151.515"
       className={className}
       role="img"
       aria-label={title || 'Mistral AI'}
     >
       <title>{title || 'Mistral AI'}</title>
-      <g fill="#FF7000">
-        <path d="M3 4.5h4.2v3.6H3zM10.2 4.5H24v3.6H10.2z" />
-        <path d="M3 9.9h11.4v3.6H3zM18 9.9h3v3.6h-3z" />
-        <path d="M3 15.3h4.2V21H3zM10.2 15.3H24V21H10.2z" />
-      </g>
+      <path
+        fill="#FFD700"
+        d="M121.21 90.909h30.303v30.303H121.21zm121.21 0h30.303v30.303H242.42z"
+      />
+      <path
+        fill="#FFAF00"
+        d="M121.21 121.21h60.606v30.303H121.21zm90.91 0h60.606v30.303H212.12z"
+      />
+      <path fill="#FF8205" d="M121.21 151.52h151.52v30.303H121.21z" />
+      <path
+        fill="#FA500F"
+        d="M121.21 181.82h30.303v30.303H121.21zm60.61 0h30.303v30.303H181.82zm60.6 0h30.303v30.303H242.42z"
+      />
+      <path
+        fill="#E10500"
+        d="M90.909 212.12h90.909v30.303H90.909zm121.211 0h90.909v30.303H212.12z"
+      />
     </svg>
   )
 }

@@ -7,8 +7,10 @@ import {
   uniqueOptions,
 } from '../components/ui/CrmFilters'
 import { DataTable, type DataColumn } from '../components/ui/DataTable'
+import { LeadIdBadge, UuidBadge } from '../components/ui/IdBadge'
 import { LeadAvatar } from '../components/ui/LeadAvatar'
 import { useShellHeader } from '../layouts/ShellContext'
+import { formatCellValue } from '../lib/format'
 import {
   archiveTentativa,
   createTentativa,
@@ -28,9 +30,8 @@ function money(v: number | null) {
   })
 }
 
-function cell(v: unknown) {
-  if (v == null || v === '') return '—'
-  return String(v)
+function cell(v: unknown, key?: string) {
+  return formatCellValue(v, key)
 }
 
 export function TentativasPage() {
@@ -187,7 +188,7 @@ export function TentativasPage() {
         </div>
       ),
     },
-    { key: 'id', label: 'id', render: (r) => cell(r.id) },
+    { key: 'id', label: 'id', render: (r) => <UuidBadge value={r.id} hint="id" /> },
     { key: 'email', label: 'email', render: (r) => cell(r.email) },
     { key: 'telefone', label: 'telefone', render: (r) => cell(r.telefone) },
     { key: 'produto', label: 'produto', render: (r) => cell(r.produto) },
@@ -205,13 +206,17 @@ export function TentativasPage() {
     {
       key: 'data_tentativa',
       label: 'data_tentativa',
-      render: (r) => cell(r.data_tentativa),
+      render: (r) => cell(r.data_tentativa, 'data_tentativa'),
     },
-    { key: 'id_lead', label: 'id_lead', render: (r) => cell(r.id_lead) },
+    {
+      key: 'id_lead',
+      label: 'id_lead',
+      render: (r) => <LeadIdBadge id={r.id_lead} />,
+    },
     {
       key: 'archived_at',
       label: 'archived_at',
-      render: (r) => cell(r.archived_at),
+      render: (r) => cell(r.archived_at, 'archived_at'),
     },
   ]
 
@@ -435,7 +440,8 @@ export function TentativasPage() {
                           {money(r.valor)}
                         </p>
                         <p className="mt-1 text-[11px] text-zinc-400">
-                          {r.forma_pagamento || '—'} · {r.data_tentativa || '—'}
+                          {r.forma_pagamento || '—'} ·{' '}
+                          {formatCellValue(r.data_tentativa, 'data_tentativa')}
                         </p>
                       </article>
                     ))}
@@ -450,7 +456,16 @@ export function TentativasPage() {
       {selected && (
         <CrmEntitySideOver
           title={isNew ? 'Nova tentativa' : selected.nome}
-          subtitle={isNew ? 'Criar registro' : `ID ${selected.id} · editar`}
+          subtitle={
+            isNew ? (
+              'Criar registro'
+            ) : (
+              <span className="inline-flex items-center gap-1.5">
+                <UuidBadge value={selected.id} hint="id" />
+                <span>editar</span>
+              </span>
+            )
+          }
           onClose={() => {
             setSelected(null)
             setIsNew(false)

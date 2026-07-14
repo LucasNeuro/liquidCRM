@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import {
   OwnerRoute,
+  PendingRoute,
   ProtectedRoute,
   PublicOnlyRoute,
 } from './components/ProtectedRoute'
@@ -9,6 +10,7 @@ import { DashboardPage } from './pages/DashboardPage'
 import { LeadsPage } from './pages/LeadsPage'
 import { LoginPage } from './pages/LoginPage'
 import { NegociosPage } from './pages/NegociosPage'
+import { PendingAccessPage } from './pages/PendingAccessPage'
 import { PlatformPage } from './pages/PlatformPage'
 import { RespostasPage } from './pages/RespostasPage'
 import { SignupPage } from './pages/SignupPage'
@@ -20,6 +22,10 @@ export default function App() {
       <Route element={<PublicOnlyRoute />}>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/cadastro" element={<SignupPage />} />
+      </Route>
+
+      <Route element={<PendingRoute />}>
+        <Route path="/pendente" element={<PendingAccessPage />} />
       </Route>
 
       <Route element={<ProtectedRoute />}>

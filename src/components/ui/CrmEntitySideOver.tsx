@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 
 type Props = {
   title: string
-  subtitle?: string
+  subtitle?: ReactNode
   onClose: () => void
   onSave: () => void
   onArchive?: () => void

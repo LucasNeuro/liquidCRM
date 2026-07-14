@@ -1,11 +1,13 @@
 import type { DragEvent } from 'react'
 import { Eye, MessageCircle, Sparkles } from 'lucide-react'
 import { IconBubble } from '../ui/IconBubble'
+import { LeadIdBadge } from '../ui/IdBadge'
 import { LeadAvatar } from '../ui/LeadAvatar'
 import type { Lead } from '../../lib/types'
 
 type LeadKanbanCardProps = {
   lead: Lead
+  hasInsight?: boolean
   dragging?: boolean
   onOpen: () => void
   onDragStart: (e: DragEvent) => void
@@ -14,6 +16,7 @@ type LeadKanbanCardProps = {
 
 export function LeadKanbanCard({
   lead,
+  hasInsight = false,
   dragging,
   onOpen,
   onDragStart,
@@ -23,6 +26,14 @@ export function LeadKanbanCard({
   const classified = score != null || Boolean(lead.intent_gemini)
   const isWhatsapp = (lead.origem || '').toLowerCase().includes('whats')
   const scorePct = Math.min(100, Math.max(0, score ?? 0))
+  const scoreTone =
+    !classified
+      ? { bar: 'bg-zinc-200', text: 'text-zinc-300' }
+      : scorePct >= 80
+        ? { bar: 'bg-emerald-500', text: 'text-emerald-600' }
+        : scorePct >= 60
+          ? { bar: 'bg-liqui-orange', text: 'text-liqui-orange' }
+          : { bar: 'bg-red-500', text: 'text-red-600' }
 
   return (
     <article
@@ -42,9 +53,9 @@ export function LeadKanbanCard({
               <p className="truncate text-sm font-bold text-liqui-navy">
                 {lead.nome}
               </p>
-              <p className="text-[11px] text-zinc-400">
-                LED-{String(lead.id_lead).padStart(4, '0')}
-              </p>
+              <div className="mt-0.5">
+                <LeadIdBadge id={lead.id_lead} />
+              </div>
             </div>
             <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-700">
               Ativo
@@ -86,15 +97,13 @@ export function LeadKanbanCard({
       <div className="mt-3 space-y-2 border-t border-zinc-100 pt-2.5">
         <div className="flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
           <span>Score</span>
-          <span className={classified ? 'text-liqui-navy' : 'text-zinc-300'}>
+          <span className={scoreTone.text}>
             {classified ? `${scorePct}%` : '—'}
           </span>
         </div>
         <div className="h-1.5 overflow-hidden rounded-full bg-zinc-100">
           <div
-            className={`h-full rounded-full transition-all ${
-              classified ? 'bg-liqui-orange' : 'bg-zinc-200'
-            }`}
+            className={`h-full rounded-full transition-all ${scoreTone.bar}`}
             style={{ width: `${classified ? scorePct : 0}%` }}
           />
         </div>
@@ -108,6 +117,11 @@ export function LeadKanbanCard({
             ) : (
               <span className="shrink-0 rounded-md border border-dashed border-zinc-300 px-1.5 py-0.5 text-[10px] font-bold text-zinc-400">
                 Sem IA
+              </span>
+            )}
+            {hasInsight && (
+              <span className="shrink-0 rounded-md bg-liqui-navy px-1.5 py-0.5 text-[10px] font-bold text-white">
+                Insight
               </span>
             )}
             <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] text-zinc-500">
