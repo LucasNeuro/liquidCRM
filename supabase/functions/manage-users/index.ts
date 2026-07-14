@@ -1,6 +1,9 @@
 /**
  * manage-users — arquivo ÚNICO para deploy Via Editor (Dashboard).
  * Secrets: SUPABASE_* automáticos; JWT do owner no Authorization.
+ *
+ * menu_access é obrigatório no update quando enviado — NÃO engole erro de coluna.
+ * Rode supabase/migrate-fix-menu-access.sql se a coluna não existir.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.0'
 
@@ -11,11 +14,47 @@ const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
+const DEFAULT_CONSULTOR_MENU = {
+  dashboard: false,
+  leads: true,
+  tentativas: false,
+  pesquisas: false,
+  negocios: true,
+  distribuicao: false,
+  plataforma: false,
+}
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
+}
+
+function sanitizeMenu(
+  raw: unknown,
+  role: string,
+): Record<string, boolean> {
+  const base = { ...DEFAULT_CONSULTOR_MENU }
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const obj = raw as Record<string, unknown>
+    for (const key of Object.keys(base) as (keyof typeof base)[]) {
+      if (typeof obj[key] === 'boolean') base[key] = obj[key] as boolean
+    }
+  }
+  if (role === 'owner') {
+    return {
+      dashboard: true,
+      leads: true,
+      tentativas: true,
+      pesquisas: true,
+      negocios: true,
+      distribuicao: true,
+      plataforma: true,
+    }
+  }
+  base.plataforma = false
+  return base
 }
 
 async function requireOwner(req: Request) {
@@ -70,7 +109,6 @@ Deno.serve(async (req) => {
         return jsonResponse({ error: 'E-mail obrigatório' }, 400)
       }
       if (password.length < 6) {
-        // Conta excepcional: senha aleatória (fluxo normal = auto-cadastro)
         password = crypto.randomUUID().replace(/-/g, '') + 'Aa1!'
       }
       if (role !== 'owner' && role !== 'consultor') {
@@ -90,36 +128,23 @@ Deno.serve(async (req) => {
 
       const userId = data.user?.id
       if (userId) {
-        const menu_access =
-          body.menu_access && typeof body.menu_access === 'object'
-            ? body.menu_access
-            : {
-                dashboard: false,
-                leads: true,
-                tentativas: false,
-                pesquisas: false,
-                negocios: true,
-                distribuicao: false,
-                plataforma: false,
-              }
-        if (role === 'consultor') {
-          ;(menu_access as Record<string, boolean>).plataforma = false
-          ;(menu_access as Record<string, boolean>).dashboard = false
-          ;(menu_access as Record<string, boolean>).tentativas = false
-          ;(menu_access as Record<string, boolean>).pesquisas = false
-          ;(menu_access as Record<string, boolean>).distribuicao = false
-          ;(menu_access as Record<string, boolean>).leads = true
-          ;(menu_access as Record<string, boolean>).negocios = true
-        }
-        await admin.from('profiles').upsert({
+        const menu_access = sanitizeMenu(body.menu_access, role)
+        const { error: upsertErr } = await admin.from('profiles').upsert({
           id: userId,
           email,
           full_name,
           role,
-          // Consultor já entra ativo, mas só com Leads + Negócios no menu
           active: true,
           menu_access,
         })
+        if (upsertErr) {
+          if (/menu_access|column/i.test(upsertErr.message)) {
+            throw new Error(
+              'Coluna menu_access ausente. Rode migrate-fix-menu-access.sql no SQL Editor e tente de novo.',
+            )
+          }
+          throw new Error(upsertErr.message)
+        }
       }
       return jsonResponse({ ok: true, user: data.user })
     }
@@ -127,6 +152,13 @@ Deno.serve(async (req) => {
     if (action === 'update') {
       const user_id = String(body.user_id || '')
       if (!user_id) return jsonResponse({ error: 'user_id obrigatório' }, 400)
+
+      const { data: existing } = await admin
+        .from('profiles')
+        .select('role')
+        .eq('id', user_id)
+        .maybeSingle()
+
       const patch: Record<string, unknown> = {}
       if (body.full_name != null) patch.full_name = String(body.full_name)
       if (body.role != null) {
@@ -140,34 +172,41 @@ Deno.serve(async (req) => {
         patch.role = role
       }
       if (body.active != null) patch.active = Boolean(body.active)
+
+      const roleForPatch = String(
+        patch.role ?? existing?.role ?? body.role_hint ?? 'consultor',
+      )
+
       if (body.menu_access != null && typeof body.menu_access === 'object') {
-        const ma = { ...(body.menu_access as Record<string, unknown>) }
-        const roleForPatch = String(
-          patch.role ?? body.role_hint ?? 'consultor',
-        )
-        if (roleForPatch !== 'owner') ma.plataforma = false
-        patch.menu_access = ma
+        patch.menu_access = sanitizeMenu(body.menu_access, roleForPatch)
       }
-      let { error } = await admin
+
+      const { data: updated, error } = await admin
         .from('profiles')
         .update(patch)
         .eq('id', user_id)
+        .select('id, menu_access, active, role')
+        .maybeSingle()
 
-      // Se a coluna menu_access ainda não existe, salva o resto (active/role)
-      if (
-        error &&
-        patch.menu_access != null &&
-        /menu_access|column/i.test(error.message)
-      ) {
-        const { menu_access: _drop, ...rest } = patch
-        const retry = await admin
-          .from('profiles')
-          .update(rest)
-          .eq('id', user_id)
-        error = retry.error
+      if (error) {
+        if (
+          patch.menu_access != null &&
+          /menu_access|column/i.test(error.message)
+        ) {
+          throw new Error(
+            'Coluna menu_access ausente. Rode migrate-fix-menu-access.sql no SQL Editor, depois Salvar de novo. Os toggles NÃO foram gravados.',
+          )
+        }
+        throw new Error(error.message)
       }
-      if (error) throw new Error(error.message)
-      return jsonResponse({ ok: true })
+      if (!updated) {
+        throw new Error('Usuário não encontrado para update')
+      }
+      return jsonResponse({
+        ok: true,
+        menu_access: updated.menu_access ?? null,
+        profile: updated,
+      })
     }
 
     if (action === 'delete') {

@@ -205,6 +205,108 @@ export async function manageUser(body: Record<string, unknown>) {
   return data
 }
 
+/**
+ * Grava menu_access de forma confiável:
+ * 1) Edge manage-users (service role)
+ * 2) Confirma no SELECT; se não bateu, UPDATE direto (owner)
+ * 3) Se a coluna não existir, erro com SQL a rodar
+ */
+export async function persistConsultantAccess(input: {
+  userId: string
+  full_name: string
+  role: ProfileRole
+  active: boolean
+  menu_access: MenuAccess
+}) {
+  const menu = normalizeMenuAccess(input.menu_access, input.role)
+
+  const edge = await manageUser({
+    action: 'update',
+    user_id: input.userId,
+    full_name: input.full_name,
+    role: input.role,
+    active: input.active,
+    menu_access: menu,
+  })
+
+  // Verificação + reforço direto (não confia só no flash do Edge antigo)
+  const verify = await supabase
+    .from('profiles')
+    .select('menu_access')
+    .eq('id', input.userId)
+    .maybeSingle()
+
+  if (verify.error && /menu_access|column/i.test(verify.error.message)) {
+    throw new Error(
+      'Coluna menu_access ainda não existe no banco. Rode supabase/migrate-fix-menu-access.sql no SQL Editor e redeploy manage-users.',
+    )
+  }
+  if (verify.error) throw new Error(verify.error.message)
+
+  const saved = normalizeMenuAccess(verify.data?.menu_access, input.role)
+  const matches = MENU_KEYS_EQUAL(saved, menu)
+
+  if (!matches) {
+    const { error: upErr } = await supabase
+      .from('profiles')
+      .update({
+        full_name: input.full_name,
+        role: input.role,
+        active: input.active,
+        menu_access: menu,
+      })
+      .eq('id', input.userId)
+
+    if (upErr) {
+      if (/menu_access|column/i.test(upErr.message)) {
+        throw new Error(
+          'Coluna menu_access ausente. Rode migrate-fix-menu-access.sql no Supabase.',
+        )
+      }
+      if (/policy|rls|permission|denied/i.test(upErr.message)) {
+        throw new Error(
+          'Menus não gravaram: redeploy da Edge manage-users (versão nova) e rode migrate-fix-menu-access.sql (inclui RLS owner).',
+        )
+      }
+      throw new Error(upErr.message)
+    }
+
+    const again = await supabase
+      .from('profiles')
+      .select('menu_access')
+      .eq('id', input.userId)
+      .maybeSingle()
+    if (again.error) throw new Error(again.error.message)
+    const saved2 = normalizeMenuAccess(again.data?.menu_access, input.role)
+    if (!MENU_KEYS_EQUAL(saved2, menu)) {
+      throw new Error(
+        'Salvou, mas o banco ainda devolveu o menu antigo. Confira migrate-fix-menu-access.sql e o deploy do manage-users.',
+      )
+    }
+    return { ok: true as const, menu_access: saved2, via: 'direct' as const }
+  }
+
+  return {
+    ok: true as const,
+    menu_access: saved,
+    via: 'edge' as const,
+    edge,
+  }
+}
+
+function MENU_KEYS_EQUAL(a: MenuAccess, b: MenuAccess) {
+  const keys: (keyof MenuAccess)[] = [
+    'dashboard',
+    'leads',
+    'tentativas',
+    'pesquisas',
+    'negocios',
+    'distribuicao',
+    'plataforma',
+  ]
+  return keys.every((k) => Boolean(a[k]) === Boolean(b[k]))
+}
+
 export async function fetchAiUsageSummary() {
   // Prefer view agregada (tempo real / barato)
   const view = await supabase.from('v_ai_cost_resumo').select('*').maybeSingle()

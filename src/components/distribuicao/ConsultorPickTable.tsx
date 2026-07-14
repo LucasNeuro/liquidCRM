@@ -19,6 +19,10 @@ type Props = {
   dist: LeadDistributionRow[]
   selectedId: string
   onSelect: (id: string) => void
+  /** Multi-seleção para pool do rodízio */
+  multi?: boolean
+  selectedIds?: Set<string>
+  onToggleId?: (id: string) => void
   /** Se false, só ativos */
   includeInactive?: boolean
   /** Lista sem seleção (ex.: preview do pool no rodízio) */
@@ -26,12 +30,15 @@ type Props = {
   title?: string
 }
 
-/** Minitabela com busca para escolher 1 consultor (sideover de distribuição). */
+/** Minitabela com busca para escolher 1 consultor (ou vários no rodízio). */
 export function ConsultorPickTable({
   consultores,
   dist,
   selectedId,
   onSelect,
+  multi = false,
+  selectedIds,
+  onToggleId,
   includeInactive = false,
   readOnly = false,
   title = 'Consultor destino',
@@ -79,6 +86,9 @@ export function ConsultorPickTable({
         <table className="w-full border-collapse text-left text-sm">
           <thead className="sticky top-0 z-10 bg-zinc-50">
             <tr>
+              {multi && !readOnly && (
+                <th className="w-8 px-2 py-2" />
+              )}
               <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
                 Nome
               </th>
@@ -94,7 +104,7 @@ export function ConsultorPickTable({
             {rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={3}
+                  colSpan={multi ? 4 : 3}
                   className="px-3 py-8 text-center text-xs text-zinc-400"
                 >
                   Nenhum consultor encontrado
@@ -102,18 +112,20 @@ export function ConsultorPickTable({
               </tr>
             ) : (
               rows.map((c) => {
-                const selected = !readOnly && selectedId === c.id
+                const selected = multi
+                  ? Boolean(selectedIds?.has(c.id))
+                  : !readOnly && selectedId === c.id
                 const active = c.active !== false
                 return (
                   <tr
                     key={c.id}
                     onClick={() => {
-                      if (!readOnly) onSelect(c.id)
+                      if (readOnly) return
+                      if (multi) onToggleId?.(c.id)
+                      else onSelect(c.id)
                     }}
                     className={`border-t border-zinc-100 transition ${
-                      readOnly
-                        ? ''
-                        : 'cursor-pointer'
+                      readOnly ? '' : 'cursor-pointer'
                     } ${
                       selected
                         ? 'bg-liqui-orange-soft/70'
@@ -122,6 +134,16 @@ export function ConsultorPickTable({
                           : 'hover:bg-zinc-50'
                     }`}
                   >
+                    {multi && !readOnly && (
+                      <td className="px-2 py-2.5">
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          readOnly
+                          className="h-4 w-4 rounded border-zinc-300"
+                        />
+                      </td>
+                    )}
                     <td className="px-3 py-2.5">
                       <p className="font-semibold text-liqui-navy">
                         {consultorLabel(c)}
@@ -150,7 +172,7 @@ export function ConsultorPickTable({
         </table>
       </div>
 
-      {!readOnly && selectedId && (
+      {!readOnly && !multi && selectedId && (
         <p className="text-xs text-zinc-500">
           Selecionado:{' '}
           <strong className="text-liqui-navy">
@@ -161,6 +183,11 @@ export function ConsultorPickTable({
               },
             )}
           </strong>
+        </p>
+      )}
+      {!readOnly && multi && (
+        <p className="text-xs text-zinc-500">
+          {selectedIds?.size || 0} consultor(es) no pool do rodízio
         </p>
       )}
     </div>

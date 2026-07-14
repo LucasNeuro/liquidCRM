@@ -22,6 +22,7 @@ import { LeadAvatar } from '../components/ui/LeadAvatar'
 import { LeadIdBadge, UuidBadge } from '../components/ui/IdBadge'
 import { useShellHeader } from '../layouts/ShellContext'
 import { useAuth } from '../contexts/AuthContext'
+import { onCrmChanged } from '../lib/crmEvents'
 import { formatCellValue } from '../lib/format'
 import {
   fetchLeadIdsWithInsights,
@@ -37,6 +38,7 @@ import {
   type Pipeline,
   type PipelineStage,
 } from '../lib/pipelines'
+import { supabase } from '../lib/supabase'
 import type { Lead, RespostaPesquisa, TentativaCompra } from '../lib/types'
 
 const STAGE_ICONS = [Mail, Phone, Star, Trophy, Layers3]
@@ -115,6 +117,27 @@ export function LeadsPage() {
 
   useEffect(() => {
     void loadAll()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const off = onCrmChanged(() => {
+      void loadAll()
+    })
+    const channel = supabase
+      .channel('leads-page-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'leads' },
+        () => {
+          void loadAll()
+        },
+      )
+      .subscribe()
+    return () => {
+      off()
+      void supabase.removeChannel(channel)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

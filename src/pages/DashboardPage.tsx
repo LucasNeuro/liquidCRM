@@ -330,7 +330,69 @@ export function DashboardPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {/* Painéis superiores */}
+            {/* Donuts / gauge no topo */}
+            <div>
+              <p className="mb-3 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
+                Insights atualizáveis
+              </p>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {tab === 'operacao' ? (
+                  <>
+                    <DonutCard
+                      title="Cobertura IA"
+                      subtitle="Leads com score/insight"
+                      slices={iaSlices}
+                      unit="leads"
+                    />
+                    <GaugeCard
+                      title="Qualificação IA"
+                      subtitle="Score ≥ 60 ou qualificado/ganho"
+                      percent={qualificacaoPct}
+                      meta={40}
+                      label="Qualificação"
+                    />
+                    <DonutCard
+                      title="Origens"
+                      subtitle="De onde vêm os leads"
+                      slices={origemSlices}
+                      unit="leads"
+                    />
+                  </>
+                ) : (
+                  <>
+                    <DonutCard
+                      title="Funil comercial"
+                      subtitle="Leads por estágio"
+                      slices={stageCounts}
+                      unit="leads"
+                    />
+                    <GaugeCard
+                      title="Conversão"
+                      subtitle="Ganhos ÷ total de leads"
+                      percent={conversaoPct}
+                      meta={40}
+                      label="Ganhos"
+                    />
+                    <DonutCard
+                      title={
+                        tab === 'comercial' ? 'Pagamentos' : 'Origens'
+                      }
+                      subtitle={
+                        tab === 'comercial'
+                          ? 'Status das tentativas'
+                          : 'Canal de entrada'
+                      }
+                      slices={
+                        tab === 'comercial' ? pagamentoSlices : origemSlices
+                      }
+                      unit={tab === 'comercial' ? 'tentativas' : 'leads'}
+                    />
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Barras abaixo */}
             <div className="grid gap-4 lg:grid-cols-2">
               {(tab === 'visao' || tab === 'comercial') && (
                 <section className="rounded-2xl bg-liqui-navy p-5 text-white shadow-sm">
@@ -554,68 +616,6 @@ export function DashboardPage() {
                   </div>
                 </section>
               )}
-            </div>
-
-            {/* 3 viewers donut / gauge — dados reais */}
-            <div>
-              <p className="mb-3 text-[11px] font-bold uppercase tracking-wide text-zinc-400">
-                Insights atualizáveis
-              </p>
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {tab === 'operacao' ? (
-                  <>
-                    <DonutCard
-                      title="Cobertura IA"
-                      subtitle="Leads com score/insight"
-                      slices={iaSlices}
-                      unit="leads"
-                    />
-                    <GaugeCard
-                      title="Qualificação IA"
-                      subtitle="Score ≥ 60 ou qualificado/ganho"
-                      percent={qualificacaoPct}
-                      meta={40}
-                      label="Qualificação"
-                    />
-                    <DonutCard
-                      title="Origens"
-                      subtitle="De onde vêm os leads"
-                      slices={origemSlices}
-                      unit="leads"
-                    />
-                  </>
-                ) : (
-                  <>
-                    <DonutCard
-                      title="Funil comercial"
-                      subtitle="Leads por estágio"
-                      slices={stageCounts}
-                      unit="leads"
-                    />
-                    <GaugeCard
-                      title="Conversão"
-                      subtitle="Ganhos ÷ total de leads"
-                      percent={conversaoPct}
-                      meta={40}
-                      label="Ganhos"
-                    />
-                    <DonutCard
-                      title={
-                        tab === 'comercial' ? 'Pagamentos' : 'Origens'
-                      }
-                      subtitle={
-                        tab === 'comercial'
-                          ? 'Status das tentativas'
-                          : 'Canal de entrada'
-                      }
-                      slices={
-                        tab === 'comercial' ? pagamentoSlices : origemSlices
-                      }
-                      unit={tab === 'comercial' ? 'tentativas' : 'leads'}
-                    />
-                  </>
-                )}
-              </div>
             </div>
           </div>
         )}

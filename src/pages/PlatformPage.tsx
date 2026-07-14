@@ -40,6 +40,7 @@ import {
   fetchAiUsageSummary,
   fetchProfiles,
   manageUser,
+  persistConsultantAccess,
   type Profile,
   type ProfileRole,
 } from '../lib/profiles'
@@ -403,15 +404,20 @@ export function PlatformPage() {
         })
         setFlash('Usuário criado (pendente) — ative quando for aprovar')
       } else if (userForm.profile) {
-        await manageUser({
-          action: 'update',
-          user_id: userForm.profile.id,
+        const res = await persistConsultantAccess({
+          userId: userForm.profile.id,
           full_name: formName,
           role: formRole,
           active: formActive,
           menu_access: menu,
         })
-        setFlash('Usuário atualizado')
+        const on = Object.entries(res.menu_access)
+          .filter(([, v]) => v)
+          .map(([k]) => k)
+          .join(', ')
+        setFlash(
+          `Acessos salvos (${on || 'nenhum'}). Consultor: janela anônima ou focar a aba para atualizar o menu.`,
+        )
       }
       setUserForm(null)
       await load()
@@ -771,7 +777,7 @@ export function PlatformPage() {
                   className="inline-flex items-center gap-1.5 rounded-xl bg-liqui-navy px-3 py-2 text-sm font-bold text-white"
                 >
                   <Plus className="h-4 w-4 text-liqui-orange" />
-                  Conta excepcional
+                  Novo consultor
                 </button>
               </>
             )}
@@ -1129,15 +1135,14 @@ export function PlatformPage() {
                         formRole === 'owner'
                           ? FULL_OWNER_MENU_ACCESS
                           : { ...formMenu, plataforma: false }
-                      await manageUser({
-                        action: 'update',
-                        user_id: userForm.profile.id,
+                      await persistConsultantAccess({
+                        userId: userForm.profile.id,
                         full_name: formName,
                         role: formRole,
                         active: true,
                         menu_access: menu,
                       })
-                      setFlash(`${formName || formEmail} ativado`)
+                      setFlash(`${formName || formEmail} ativado · menus gravados`)
                       setUserForm(null)
                       await load()
                     } catch (err) {
@@ -1161,10 +1166,16 @@ export function PlatformPage() {
                     setSaving(true)
                     setError(null)
                     try {
-                      await manageUser({
-                        action: 'update',
-                        user_id: userForm.profile.id,
+                      const menu =
+                        formRole === 'owner'
+                          ? FULL_OWNER_MENU_ACCESS
+                          : { ...formMenu, plataforma: false }
+                      await persistConsultantAccess({
+                        userId: userForm.profile.id,
+                        full_name: formName,
+                        role: formRole,
                         active: false,
+                        menu_access: menu,
                       })
                       setFlash(`${formName || formEmail} inativado`)
                       setUserForm(null)

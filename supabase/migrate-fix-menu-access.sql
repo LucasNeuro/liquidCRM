@@ -1,22 +1,17 @@
 -- =============================================================================
--- LIQUI · atualiza profiles + leads para o modelo de acesso (owner aprova + menu)
--- Cole no SQL Editor do Supabase e rode 1x.
--- Seguro para reexecução (IF NOT EXISTS / DROP IF EXISTS onde cabe).
+-- COLE ESTE ARQUIVO INTEIRO NO SQL EDITOR DO SUPABASE E CLIQUE EM RUN
+-- Corrige: ERROR 42703 column "menu_access" does not exist
+-- Idempotente (pode rodar mais de uma vez).
 -- =============================================================================
 
--- 1) Colunas base
+-- 1) Colunas que o app precisa
 alter table public.profiles
   add column if not exists active boolean not null default true;
 
-alter table public.leads
-  add column if not exists assigned_to uuid references public.profiles(id) on delete set null;
-
-create index if not exists idx_leads_assigned_to on public.leads (assigned_to);
-
--- 2) menu_access (o que o consultor vê no sidebar após login)
 alter table public.profiles
   add column if not exists menu_access jsonb;
 
+-- 2) Preenche só quem ainda está NULL
 update public.profiles
 set menu_access = '{
   "dashboard": false,
@@ -58,14 +53,14 @@ alter table public.profiles
   alter column menu_access set not null;
 
 comment on column public.profiles.menu_access is
-  'Flags de menu por rota. Owner ignora e vê tudo. Consultor: owner define no sideover.';
+  'Flags de menu por rota. Owner vê tudo. Consultor: owner define no sideover.';
 
--- 3) Roles: legado "agente" → consultor; constraint alinhada ao app
+-- 3) Legado "agente" → consultor (seu CHECK ainda permite agente)
 update public.profiles
 set role = 'consultor'
 where role::text = 'agente';
 
--- remove CHECK antigo (nome gerado pelo Postgres varia)
+-- Remove CHECK antigo de role (nome varia)
 do $$
 declare
   r record;
@@ -82,16 +77,56 @@ begin
   loop
     execute format('alter table public.profiles drop constraint %I', r.conname);
   end loop;
+exception
+  when others then null;
 end $$;
 
 alter table public.profiles
   alter column role set default 'consultor';
 
-alter table public.profiles
-  add constraint profiles_role_check
-  check (role = any (array['owner'::text, 'consultor'::text]));
+do $$
+begin
+  alter table public.profiles
+    add constraint profiles_role_check
+    check (role = any (array['owner'::text, 'consultor'::text]));
+exception
+  when duplicate_object then null;
+end $$;
 
--- 4) Cadastro público: pendente + menu padrão (senha é do próprio user no Auth)
+-- 4) Helper + RLS (owner grava menus; consultor lê o próprio perfil)
+create or replace function public.is_platform_owner()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles p
+    where p.id = auth.uid()
+      and p.role::text = 'owner'
+      and coalesce(p.active, true) = true
+  );
+$$;
+
+revoke all on function public.is_platform_owner() from public;
+grant execute on function public.is_platform_owner() to authenticated;
+
+alter table public.profiles enable row level security;
+
+drop policy if exists profiles_select_authenticated on public.profiles;
+create policy profiles_select_authenticated on public.profiles
+  for select to authenticated
+  using (id = auth.uid() or public.is_platform_owner());
+
+drop policy if exists profiles_update_owner on public.profiles;
+create policy profiles_update_owner on public.profiles
+  for update to authenticated
+  using (public.is_platform_owner())
+  with check (public.is_platform_owner());
+
+-- 5) Trigger de cadastro já cria menu padrão (Leads + Negócios)
 create or replace function public.handle_new_user_profile()
 returns trigger
 language plpgsql
@@ -133,55 +168,7 @@ create trigger on_auth_user_created_profile
   for each row
   execute function public.handle_new_user_profile();
 
--- 5) Helper owner (RLS / distribuição)
-create or replace function public.is_platform_owner()
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select exists (
-    select 1
-    from public.profiles p
-    where p.id = auth.uid()
-      and p.role::text = 'owner'
-      and coalesce(p.active, true) = true
-  );
-$$;
-
-revoke all on function public.is_platform_owner() from public;
-grant execute on function public.is_platform_owner() to authenticated;
-
--- 6) View da tela Operação → Distribuição
-create or replace view public.v_leads_distribuicao as
-select
-  p.id as consultor_id,
-  p.full_name,
-  p.email,
-  p.role::text as role,
-  coalesce(p.active, true) as active,
-  p.menu_access,
-  count(l.id_lead)::int as total_leads,
-  count(l.id_lead) filter (
-    where lower(coalesce(l.status, '')) = 'ganho'
-  )::int as ganhos,
-  count(l.id_lead) filter (
-    where lower(coalesce(l.status, '')) not in ('ganho', 'perdido')
-  )::int as abertos,
-  count(l.id_lead) filter (
-    where lower(coalesce(l.status, '')) = 'perdido'
-  )::int as perdidos
-from public.profiles p
-left join public.leads l
-  on l.assigned_to = p.id
- and l.archived_at is null
-where p.role::text = 'consultor'
-group by p.id, p.full_name, p.email, p.role, p.active, p.menu_access;
-
-grant select on public.v_leads_distribuicao to authenticated;
-
--- 7) NÃO sobrescrever menu_access de consultores já configurados.
---    Só preenche null (defaults). Grants do owner no sideover devem persistir.
-
--- Após rodar: redeploy Edge Function manage-users.
+-- 6) Conferência — deve retornar JSON em menu_access (não erro 42703)
+select email, role, active, menu_access
+from public.profiles
+where email = 'marcondeslucas979@gmail.com';
