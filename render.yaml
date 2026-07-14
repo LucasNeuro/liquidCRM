@@ -15,6 +15,7 @@ services:
     runtime: static
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
+    startCommand: npm run start
     envVars:
       - key: VITE_SUPABASE_URL
         sync: false
