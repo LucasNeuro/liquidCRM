@@ -7,6 +7,7 @@ import {
   RequireMenuAccess,
 } from './components/ProtectedRoute'
 import { AppShell } from './layouts/AppShell'
+import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { DistribuicaoPage } from './pages/DistribuicaoPage'
 import { LeadsPage } from './pages/LeadsPage'
@@ -24,6 +25,7 @@ export default function App() {
       <Route element={<PublicOnlyRoute />}>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/cadastro" element={<SignupPage />} />
+        <Route path="/auth/callback" element={<AuthCallbackPage />} />
       </Route>
 
       <Route element={<PendingRoute />}>
