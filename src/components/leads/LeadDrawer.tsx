@@ -318,7 +318,7 @@ export function LeadDrawer({
             {tab === 'negocios' ? (
               <button
                 type="button"
-                onClick={() => setShowCreateNegocio(true)}
+                onClick={() => setShowNegocioForm(true)}
                 disabled={!negPipelineId || negStages.length === 0}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-liqui-orange px-4 py-3 text-sm font-bold text-white disabled:opacity-60"
               >
