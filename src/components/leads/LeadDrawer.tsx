@@ -796,7 +796,20 @@ export function LeadDrawer({
         </Modal>
       )}
 
-
+      {showNegocioForm && (
+        <div className="border-t border-zinc-100 p-4">
+          <NegocioFormInline
+            pipelineId={negPipelineId}
+            stages={negStages}
+            defaultLeadId={lead.id_lead}
+            onClose={() => setShowNegocioForm(false)}
+            onCreated={() => {
+              setShowNegocioForm(false)
+              void loadNegocios()
+            }}
+          />
+        </div>
+      )}
     </>
   )
 }
