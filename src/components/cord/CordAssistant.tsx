@@ -12,7 +12,7 @@ import {
   X,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
-import { sendCordMessage, type CordMessage, type CordPendingAction } from '../../lib/cord'
+import { sendCordMessage, type CordPendingAction } from '../../lib/cord'
 import { emitCrmChanged } from '../../lib/crmEvents'
 import { MistralIcon } from '../ui/LlmIcons'
 import {

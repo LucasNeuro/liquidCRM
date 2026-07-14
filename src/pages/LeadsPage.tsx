@@ -619,7 +619,7 @@ export function LeadsPage() {
             <p>Execute o arquivo <code>supabase/pipelines.sql</code> no Supabase.</p>
             <button
               type="button"
-              onClick={() => setShowPipelineModal(true)}
+              onClick={() => setShowPipelineManager(true)}
               className="rounded-xl bg-liqui-orange px-4 py-2 font-bold text-white"
             >
               Criar funil

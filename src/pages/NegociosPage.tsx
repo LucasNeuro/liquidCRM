@@ -511,7 +511,7 @@ export function NegociosPage() {
             <p>Nenhum funil de negócios. Rode migrate-negocios.sql</p>
             <button
               type="button"
-              onClick={() => setShowPipelineModal(true)}
+              onClick={() => setShowPipelineManager(true)}
               className="rounded-xl bg-liqui-orange px-4 py-2 font-bold text-white"
             >
               Criar funil
