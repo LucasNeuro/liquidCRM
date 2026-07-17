@@ -254,12 +254,13 @@ export function UserAccessSideOver({
                 label="Conta ativa (libera login no CRM)"
                 checked={active}
                 onChange={onChangeActive}
+                disabled={role === 'owner'}
               />
             </div>
             <div className="flex gap-2">
               <button
                 type="button"
-                disabled={saving || active || !onActivateNow}
+                disabled={saving || active || !onActivateNow || role === 'owner'}
                 onClick={onActivateNow}
                 className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-xs font-bold text-liqui-navy disabled:opacity-40"
               >
@@ -268,7 +269,7 @@ export function UserAccessSideOver({
               </button>
               <button
                 type="button"
-                disabled={saving || !active || !onInactivateNow}
+                disabled={saving || !active || !onInactivateNow || role === 'owner'}
                 onClick={onInactivateNow}
                 className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-xs font-bold text-liqui-navy disabled:opacity-40"
               >

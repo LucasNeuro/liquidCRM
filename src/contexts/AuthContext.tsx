@@ -33,7 +33,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 function isOwnerRole(profile: Profile | null) {
   if (!profile) return false
-  if (profile.active === false) return false
+  // Owner sempre é ativo, independentemente do campo active
   return String(profile.role || '')
     .trim()
     .toLowerCase() === 'owner'
@@ -41,6 +41,8 @@ function isOwnerRole(profile: Profile | null) {
 
 function isConsultorRole(profile: Profile | null) {
   if (!profile) return false
+  // Owner nunca é consultor
+  if (String(profile.role || '').trim().toLowerCase() === 'owner') return false
   if (profile.active === false) return false
   return String(profile.role || '')
     .trim()

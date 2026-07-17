@@ -171,7 +171,13 @@ Deno.serve(async (req) => {
         }
         patch.role = role
       }
-      if (body.active != null) patch.active = Boolean(body.active)
+      if (body.active != null) {
+        // Owner nunca pode ser desativado
+        const targetRole = String(patch.role ?? existing?.role ?? body.role_hint ?? 'consultor')
+        if (targetRole !== 'owner') {
+          patch.active = Boolean(body.active)
+        }
+      }
 
       const roleForPatch = String(
         patch.role ?? existing?.role ?? body.role_hint ?? 'consultor',
@@ -212,6 +218,18 @@ Deno.serve(async (req) => {
     if (action === 'delete') {
       const user_id = String(body.user_id || '')
       if (!user_id) return jsonResponse({ error: 'user_id obrigatório' }, 400)
+      
+      // Verificar se o usuário é owner
+      const { data: targetProfile } = await admin
+        .from('profiles')
+        .select('role')
+        .eq('id', user_id)
+        .maybeSingle()
+      
+      if (targetProfile?.role === 'owner') {
+        return jsonResponse({ error: 'Não é possível deletar um owner' }, 400)
+      }
+      
       if (body.hard === true) {
         const { error } = await admin.auth.admin.deleteUser(user_id)
         if (error) throw new Error(error.message)

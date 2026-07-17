@@ -46,7 +46,7 @@ function normalizeProfile(row: Record<string, unknown> | null): Profile | null {
     full_name: String(row.full_name ?? ''),
     email: String(row.email ?? ''),
     role,
-    active: isProfileActive(row.active),
+    active: role === "owner" ? true : isProfileActive(row.active),
     created_at: row.created_at ? String(row.created_at) : undefined,
     menu_access: normalizeMenuAccess(row.menu_access, role),
   }

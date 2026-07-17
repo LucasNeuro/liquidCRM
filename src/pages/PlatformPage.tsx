@@ -323,6 +323,11 @@ export function PlatformPage() {
   }
 
   async function setProfileActive(p: Profile, active: boolean) {
+    // Não permitir desativar owner
+    if (p.role === 'owner' && !active) {
+      setError('Não é possível desativar um owner')
+      return
+    }
     setSaving(true)
     setError(null)
     try {
@@ -515,7 +520,9 @@ export function PlatformPage() {
       key: 'active',
       label: 'Status',
       render: (r) =>
-        r.active === false ? (
+        r.role === 'owner' ? (
+          <span className="text-xs font-semibold text-liqui-navy">Ativo</span>
+        ) : r.active === false ? (
           <span className="text-xs font-semibold text-amber-700">Pendente</span>
         ) : (
           <span className="text-xs font-semibold text-liqui-navy">Ativo</span>
@@ -541,7 +548,7 @@ export function PlatformPage() {
           >
             Editar
           </button>
-          {r.active === false ? (
+          {r.role === 'owner' ? null : r.active === false ? (
             <button
               type="button"
               disabled={saving}
@@ -560,14 +567,16 @@ export function PlatformPage() {
               Inativar
             </button>
           )}
-          <button
-            type="button"
-            disabled={saving}
-            onClick={() => void softDeleteProfile(r)}
-            className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-semibold text-red-600 disabled:opacity-50"
-          >
-            Excluir
-          </button>
+          {r.role !== 'owner' && (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => void softDeleteProfile(r)}
+              className="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-semibold text-red-600 disabled:opacity-50"
+            >
+              Excluir
+            </button>
+          )}
         </div>
       ),
     },

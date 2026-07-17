@@ -24,8 +24,12 @@ export function ProtectedRoute() {
     return <Navigate to="/login" replace />
   }
 
-  // Sem profile ainda, ou desativado → aguarda liberação do owner
-  if (!profile || profile.active === false) {
+  // Sem profile ainda → aguarda liberação do owner
+  // Owner sempre é ativo, mesmo se profile.active for false
+  if (!profile) {
+    return <Navigate to="/pendente" replace />
+  }
+  if (profile.active === false && profile.role !== 'owner') {
     return <Navigate to="/pendente" replace />
   }
 
@@ -42,7 +46,7 @@ export function PendingRoute() {
     return <Navigate to="/login" replace />
   }
 
-  if (profile && profile.active !== false) {
+  if (profile && (profile.active !== false || profile.role === 'owner')) {
     return (
       <Navigate
         to={firstAllowedPath(profile.menu_access, profile.role)}
@@ -97,7 +101,10 @@ export function PublicOnlyRoute() {
   }
 
   if (session) {
-    if (!profile || profile.active === false) {
+    if (!profile) {
+      return <Navigate to="/pendente" replace />
+    }
+    if (profile.active === false && profile.role !== 'owner') {
       return <Navigate to="/pendente" replace />
     }
     return (
