@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { BrandLogo } from '../components/BrandLogo'
 import { CordAssistant } from '../components/cord/CordAssistant'
+import { SuperAgentButton } from '../components/SuperAgentButton'
 import ErrorBoundary from '../components/ErrorBoundary'
 import { IconBubble } from '../components/ui/IconBubble'
 import { useAuth } from '../contexts/AuthContext'
@@ -286,6 +287,7 @@ function ShellChrome() {
       </div>
 
       <CordAssistant />
+      <SuperAgentButton position="right" />
     </div>
   )
 }

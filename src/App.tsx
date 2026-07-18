@@ -7,6 +7,7 @@ import {
   RequireMenuAccess,
 } from './components/ProtectedRoute'
 import { AppShell } from './layouts/AppShell'
+import { SuperAgentProvider } from './components/SuperAgentProvider'
 import { AuthCallbackPage } from './pages/AuthCallbackPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { DistribuicaoPage } from './pages/DistribuicaoPage'
@@ -21,7 +22,8 @@ import { TentativasPage } from './pages/TentativasPage'
 
 export default function App() {
   return (
-    <Routes>
+    <SuperAgentProvider>
+      <Routes>
       <Route element={<PublicOnlyRoute />}>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/cadastro" element={<SignupPage />} />
@@ -64,5 +66,6 @@ export default function App() {
       <Route path="/" element={<Navigate to="/leads" replace />} />
       <Route path="*" element={<Navigate to="/leads" replace />} />
     </Routes>
+    </SuperAgentProvider>
   )
 }
