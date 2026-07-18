@@ -79,7 +79,7 @@ async function requireOwner(req: Request) {
     .eq('id', userData.user.id)
     .maybeSingle()
 
-  if (!profile || profile.role !== 'owner' || profile.active === false) {
+  if (!profile || profile.role !== 'owner') {
     throw new Error('Acesso restrito a owner')
   }
 
