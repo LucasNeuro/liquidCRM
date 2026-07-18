@@ -10,10 +10,12 @@
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.0'
-import type { AgentAction, AgentResponse, UserCommand, AgentContext, AgentResult } from './types.ts'
+import type { AgentAction, AgentResponse, UserCommand, AgentContext, AgentResult, GenerateReportData, SendWebhookData } from './types.ts'
 import * as leadSkills from './skills/leadSkills.ts'
 import * as negocioSkills from './skills/negocioSkills.ts'
 import * as userSkills from './skills/userSkills.ts'
+import * as reportSkills from './skills/reportSkills.ts'
+import * as webhookHandler from './webhookHandler.ts'
 
 const corsHeaders: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -153,6 +155,52 @@ function extractActionFromCommand(command: string): { action: AgentAction | null
     }
   }
   
+  // Gerar relatório
+  if (cmd.includes('gerar relatório') || cmd.includes('gere relatório') || cmd.includes('relatório')) {
+    const typeMatch = cmd.match(/(?:relatório|report)[^:]*:?\s*(diário|semanal|status|usuários|custom)/i)
+    const reportType = typeMatch ? typeMatch[1] : 'leads_daily'
+    
+    // Mapeia para os tipos válidos
+    const typeMap: Record<string, string> = {
+      'diário': 'leads_daily',
+      'semanal': 'leads_weekly',
+      'status': 'negocios_status',
+      'usuários': 'users_activity',
+      'custom': 'custom',
+    }
+    
+    const mappedType = typeMap[reportType] || 'leads_daily'
+    
+    return {
+      action: {
+        type: 'generate_report',
+        data: {
+          type: mappedType as any,
+          start_date: extractDateFromCommand(cmd),
+          end_date: extractDateFromCommand(cmd, 'até|until'),
+        },
+      },
+      response: `Vou gerar um relatório ${reportType}`,
+    }
+  }
+  
+  // Enviar para webhook
+  if (cmd.includes('enviar para webhook') || cmd.includes('envie para webhook')) {
+    const urlMatch = cmd.match(/(?:webhook|url)[^:]*:?\s*(https?:\/\/[^\s]+)/i)
+    if (urlMatch) {
+      return {
+        action: {
+          type: 'send_webhook',
+          data: {
+            url: urlMatch[1],
+            body: { message: 'Dados do Super Agente' },
+          },
+        },
+        response: `Vou enviar dados para o webhook ${urlMatch[1]}`,
+      }
+    }
+  }
+  
   // Comando não reconhecido
   return {
     action: null,
@@ -185,9 +233,55 @@ async function executeAction(action: AgentAction, context: AgentContext): Promis
       return getSystemStats(context)
     case 'custom_query':
       return executeCustomQuery(action.data.query, context)
+    case 'generate_report':
+      return reportSkills.generateReportSkill(action.data, context)
+    case 'send_webhook':
+      return webhookHandler.sendToWebhook(action.data, context)
     default:
       return { success: false, message: 'Ação não implementada' }
   }
+}
+
+/**
+ * Extrai data de um comando
+ */
+function extractDateFromCommand(command: string, untilKeyword?: string): string | undefined {
+  const datePatterns = [
+    // YYYY-MM-DD
+    /(\d{4}-\d{2}-\d{2})/,
+    // DD/MM/YYYY
+    /(\d{2}\/\d{2}\/\d{4})/,
+    // Hoje
+    /(hoje|today)/i,
+    // Ontem
+    /(ontem|yesterday)/i,
+    // Esta semana
+    /(esta semana|this week)/i,
+    // Este mês
+    /(este mês|this month)/i,
+  ]
+  
+  for (const pattern of datePatterns) {
+    const match = command.match(pattern)
+    if (match) {
+      const dateStr = match[1]
+      if (dateStr === 'hoje' || dateStr === 'today') {
+        return new Date().toISOString().split('T')[0]
+      }
+      if (dateStr === 'ontem' || dateStr === 'yesterday') {
+        const yesterday = new Date()
+        yesterday.setDate(yesterday.getDate() - 1)
+        return yesterday.toISOString().split('T')[0]
+      }
+      if (dateStr.includes('/')) {
+        const [day, month, year] = dateStr.split('/')
+        return `${year}-${month}-${day}`
+      }
+      return dateStr
+    }
+  }
+  
+  return undefined
 }
 
 /**
@@ -324,6 +418,8 @@ Deno.serve(async (req) => {
       userEmail: callerEmail,
       isOwner,
       supabaseAdmin: admin,
+      supabaseUrl: supabaseUrl,
+      anonKey: Deno.env.get('SUPABASE_ANON_KEY') || '',
     }
 
     // Obtém o comando

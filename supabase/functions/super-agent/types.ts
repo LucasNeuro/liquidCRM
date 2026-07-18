@@ -13,7 +13,9 @@ export type AgentAction =
   | { type: 'create_user', data: CreateUserData }
   | { type: 'update_user', data: UpdateUserData }
   | { type: 'get_stats', data?: never }
-  | { type: 'custom_query', data: { query: string } };
+  | { type: 'custom_query', data: { query: string } }
+  | { type: 'generate_report', data: GenerateReportData }  // NOVO
+  | { type: 'send_webhook', data: SendWebhookData };      // NOVO
 
 /** Dados para criar um lead */
 export interface CreateLeadData {
@@ -84,6 +86,54 @@ export interface UpdateUserData {
   menu_access?: Record<string, boolean>;
 }
 
+// =============================================================================
+// NOVOS TIPOS PARA RELATÓRIOS E WEBHOOKS
+// =============================================================================
+
+/** Tipos de relatórios */
+export type ReportType = 
+  | 'leads_daily'
+  | 'leads_weekly'
+  | 'negocios_status'
+  | 'users_activity'
+  | 'custom';
+
+/** Dados para gerar um relatório */
+export interface GenerateReportData {
+  type: ReportType;
+  start_date?: string;  // ISO date
+  end_date?: string;    // ISO date
+  filters?: Record<string, unknown>;
+  webhook_url?: string; // URL para enviar o relatório
+}
+
+/** Dados para enviar via webhook */
+export interface SendWebhookData {
+  url: string;
+  method?: 'POST' | 'PUT' | 'PATCH';
+  headers?: Record<string, string>;
+  body: Record<string, unknown>;
+}
+
+/** Estrutura de um relatório */
+export interface Report {
+  id: string;
+  type: ReportType;
+  generated_at: string;
+  data: Record<string, unknown>;
+  summary: string;
+}
+
+/** Configuração de webhook */
+export interface WebhookConfig {
+  id: string;
+  name: string;
+  url: string;
+  events: string[];  // Quais eventos disparar este webhook
+  secret?: string;   // Token de segurança
+  active: boolean;
+}
+
 /** Resultado de uma ação */
 export interface AgentResult {
   success: boolean;
@@ -98,6 +148,8 @@ export interface AgentContext {
   userEmail: string;
   isOwner: boolean;
   supabaseAdmin: any;
+  supabaseUrl: string;
+  anonKey: string;
 }
 
 /** Comando do usuário */
@@ -108,8 +160,20 @@ export interface UserCommand {
 
 /** Resposta do agente */
 export interface AgentResponse {
-  thought: string;  // Processamento interno (para debug)
+  thought: string;
   action: AgentAction | null;
-  response: string;  // Resposta em linguagem natural
+  response: string;
   result?: AgentResult;
+  report?: Report;          // NOVO: Relatórios gerados
+  webhook_sent?: boolean;   // NOVO: Indica se foi enviado via webhook
+}
+
+/** Configuração do sistema */
+export interface SystemConfig {
+  webhooks: WebhookConfig[];
+  report_schedules: {
+    leads_daily: string;    // Cron expression
+    leads_weekly: string;
+    negocios_status: string;
+  };
 }
