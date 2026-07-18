@@ -1,0 +1,15 @@
+{
+  "name": "super-agent",
+  "version": "1.0.0",
+  "description": "Super Agente - Assistente Conversacional do CRM",
+  "main": "index.ts",
+  "imports": {
+    "https://esm.sh/@supabase/supabase-js@2.50.0": "https://esm.sh/@supabase/supabase-js@2.50.0"
+  },
+  "permissions": {
+    "net": true,
+    "env": true,
+    "read": true,
+    "write": true
+  }
+}
