@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, type KeyboardEvent, type ChangeEvent } from 'react'
 import { X, Paperclip, Send, Bot, Loader2 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { supabase } from '../lib/supabase'
 
 interface Message {
   id: string

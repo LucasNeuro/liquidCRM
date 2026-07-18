@@ -72,7 +72,7 @@ export function useSuperAgent() {
         setMessages((prev) => [
           ...prev,
           {
-            text: data.response || data.message || 'Não foi possível processar o comando',
+            text: data.response || "" || 'Não foi possível processar o comando',
             sender: 'agent',
             timestamp: new Date(),
             thought: data.thought,
