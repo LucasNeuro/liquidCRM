@@ -1,8 +1,8 @@
 -- =============================================================================
--- CORREÇÃO: Garante que o trigger não force role='consultor' para owners
+-- CORREÇÃO DO TRIGGER: Garante que novos usuários tenham menu_access com TODAS as chaves
 -- =============================================================================
 
--- 1. Atualiza o trigger para não sobrescrever o role se já for owner
+-- 1. Corrige o trigger para usar TODAS as chaves que o frontend espera
 CREATE OR REPLACE FUNCTION public.handle_new_user_profile()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -16,18 +16,36 @@ BEGIN
   END IF;
   
   -- Verificar se este usuário deve ser owner (primeiro usuário do sistema)
-  -- Se não houver nenhum owner ainda, este usuário será owner
   DECLARE
     owner_count INTEGER;
     user_role TEXT;
+    user_menu_access JSONB;
   BEGIN
     SELECT COUNT(*) INTO owner_count FROM public.profiles WHERE role = 'owner';
     
     -- Se não houver owners, este usuário será owner
     IF owner_count = 0 THEN
       user_role := 'owner';
+      user_menu_access := '{
+        "dashboard": true,
+        "leads": true,
+        "tentativas": true,
+        "pesquisas": true,
+        "negocios": true,
+        "distribuicao": true,
+        "plataforma": true
+      }'::jsonb;
     ELSE
       user_role := 'consultor';
+      user_menu_access := '{
+        "dashboard": false,
+        "leads": true,
+        "tentativas": false,
+        "pesquisas": false,
+        "negocios": true,
+        "distribuicao": false,
+        "plataforma": false
+      }'::jsonb;
     END IF;
     
     INSERT INTO public.profiles (id, email, full_name, role, active, menu_access)
@@ -40,31 +58,13 @@ BEGIN
       ),
       user_role,
       true,
-      CASE user_role
-        WHEN 'owner' THEN '{
-          "dashboard": true,
-          "leads": true,
-          "tentativas": true,
-          "pesquisas": true,
-          "negocios": true,
-          "distribuicao": true,
-          "plataforma": true
-        }'::jsonb
-        ELSE '{
-          "dashboard": false,
-          "leads": true,
-          "tentativas": false,
-          "pesquisas": false,
-          "negocios": true,
-          "distribuicao": false,
-          "plataforma": false
-        }'::jsonb
-      END
+      user_menu_access
     )
     ON CONFLICT (id) DO UPDATE SET
       email = excluded.email,
       full_name = coalesce(nullif(profiles.full_name, ''), excluded.full_name),
       role = excluded.role,
+      active = excluded.active,
       menu_access = excluded.menu_access;
   END;
   
@@ -79,5 +79,5 @@ CREATE TRIGGER on_auth_user_created_profile
   FOR EACH ROW
   EXECUTE FUNCTION public.handle_new_user_profile();
 
--- 3. Verificação: lista todos os usuários
+-- 3. Verificação: lista todos os perfis
 SELECT id, email, role, active, menu_access FROM public.profiles ORDER BY created_at;

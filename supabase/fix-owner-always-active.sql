@@ -1,5 +1,5 @@
 -- =============================================================================
--- SOLUÇÃO DEFINITIVA: Owners SIEMPRE ativos e com acesso total
+-- SOLUÇÃO DEFINITIVA: Owners SIEMPRE ativos e com TODAS as chaves de menu
 -- Execute este SQL INTEIRO no Supabase SQL Editor
 -- =============================================================================
 
@@ -8,7 +8,8 @@ UPDATE public.profiles
 SET active = true 
 WHERE role = 'owner';
 
--- 2. Garante que todos os owners tenham menu_access completo AGORA
+-- 2. Garante que todos os owners tenham menu_access COMPLETO com TODAS as chaves
+-- (O frontend espera: dashboard, leads, tentativas, pesquisas, negocios, distribuicao, plataforma)
 UPDATE public.profiles 
 SET menu_access = '{
   "dashboard": true,
@@ -31,14 +32,15 @@ EXCEPTION WHEN duplicate_object THEN
   RAISE NOTICE 'Constraint profiles_owner_must_be_active já existe';
 END $$;
 
--- 4. Função para forçar owners a terem acesso total
+-- 4. Função para forçar owners a terem acesso total com TODAS as chaves
 CREATE OR REPLACE FUNCTION public.ensure_owner_full_access()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 BEGIN
-  -- Se for owner, forçar active = true e menu_access completo
+  -- Se for owner, forçar active = true e menu_access completo com TODAS as chaves
   IF NEW.role = 'owner' THEN
     NEW.active = true;
     NEW.menu_access = '{
@@ -74,6 +76,7 @@ CREATE OR REPLACE FUNCTION public.is_owner_user(user_id uuid)
 RETURNS boolean
 LANGUAGE sql
 SECURITY DEFINER
+SET search_path = public
 AS $$
   SELECT EXISTS (
     SELECT 1 FROM public.profiles 
@@ -81,7 +84,7 @@ AS $$
   );
 $$;
 
--- 8. RLS: Garante que owners sempre possam ler e atualizar seus próprios perfis
+-- 8. RLS: Garante que owners sempre possam ler e atualizar
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
 -- Policy para SELECT: owner vê tudo, consultor vê só seu perfil
@@ -112,7 +115,8 @@ CREATE POLICY profiles_update_policy ON public.profiles
     (id = auth.uid())
   );
 
--- 9. CORREÇÃO ESPECÍFICA: Atualiza o usuário neuroboost.ai2025@gmail.com
+-- 9. CORREÇÃO ESPECÍFICA: Atualiza os usuários owners
+-- (Incluindo neuroboost.ai2025@gmail.com e lucasoffgod@hotmail.com)
 UPDATE public.profiles 
 SET 
   role = 'owner',
@@ -126,26 +130,15 @@ SET
     "distribuicao": true,
     "plataforma": true
   }'::jsonb
-WHERE email = 'neuroboost.ai2025@gmail.com';
+WHERE email IN ('neuroboost.ai2025@gmail.com', 'lucasoffgod@hotmail.com');
 
--- 10. Verificação final
+-- 10. Verificação final - TODOS os owners
 SELECT 
   id, 
   email, 
   role, 
   active,
-  menu_access->>'plataforma' as plataforma,
-  menu_access->>'leads' as leads,
-  menu_access->>'dashboard' as dashboard
+  menu_access
 FROM public.profiles 
 WHERE role = 'owner'
 ORDER BY email;
-
--- 11. Contagem de owners ativos
-SELECT 
-  COUNT(*) as total_owners,
-  COUNT(*) FILTER (WHERE active = true) as active_owners,
-  COUNT(*) FILTER (WHERE active = false) as inactive_owners,
-  COUNT(*) FILTER (WHERE menu_access->>'plataforma' = 'true') as owners_with_plataforma
-FROM public.profiles 
-WHERE role = 'owner';
