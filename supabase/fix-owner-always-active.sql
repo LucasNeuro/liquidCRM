@@ -53,3 +53,51 @@ SELECT
   COUNT(*) FILTER (WHERE active = false) as inactive_owners
 FROM public.profiles
 WHERE role = 'owner';
+
+-- 6. Corrige o DEFAULT do menu_access para owners
+-- (O schema atual tem plataforma: false no DEFAULT, mas owners devem ter plataforma: true)
+ALTER TABLE public.profiles 
+  ALTER COLUMN menu_access SET DEFAULT '{
+    "dashboard": false,
+    "leads": true,
+    "tentativas": false,
+    "pesquisas": false,
+    "negocios": true,
+    "distribuicao": false,
+    "plataforma": false
+  }'::jsonb;
+
+-- 7. Atualiza todos os owners para terem plataforma: true no menu_access
+UPDATE public.profiles 
+SET menu_access = jsonb_set(
+  COALESCE(menu_access, '{}'::jsonb),
+  '{plataforma}',
+  'true'::jsonb
+)
+WHERE role = 'owner';
+
+-- 8. Verificação final
+SELECT id, email, role, active, menu_access->>'plataforma' as plataforma_access
+FROM public.profiles
+WHERE role = 'owner';
+
+-- 9. CORREÇÃO CRÍTICA: Atualiza o usuário neuroboost.ai2025@gmail.com para ser owner com menu_access correto
+-- (Substitua o email se necessário)
+UPDATE public.profiles 
+SET 
+  role = 'owner',
+  active = true,
+  menu_access = '{
+    "dashboard": true,
+    "leads": true,
+    "tentativas": true,
+    "pesquisas": true,
+    "negocios": true,
+    "distribuicao": true,
+    "plataforma": true
+  }'::jsonb
+WHERE email = 'neuroboost.ai2025@gmail.com';
+
+-- 10. Verificação final para este usuário específico
+SELECT id, email, role, active, menu_access FROM public.profiles 
+WHERE email = 'neuroboost.ai2025@gmail.com';

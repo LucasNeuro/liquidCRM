@@ -103,15 +103,26 @@ export function normalizeMenuAccess(
     ? { ...FULL_OWNER_MENU_ACCESS }
     : { ...DEFAULT_CONSULTOR_MENU_ACCESS }
 
+  // Para owners, NUNCA sobrescrever com valores do banco (exceto se for true)
+  // Para consultores, aplicar valores do banco
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
     const obj = raw as Record<string, unknown>
     for (const key of MENU_ACCESS_KEYS) {
-      if (typeof obj[key] === 'boolean') base[key] = obj[key] as boolean
+      if (typeof obj[key] === 'boolean') {
+        // Owner: só aplica se for true (nunca desativa um menu do owner)
+        if (isOwner && obj[key] === true) {
+          base[key] = true
+        }
+        // Consultor: aplica normalmente
+        else if (!isOwner) {
+          base[key] = obj[key] as boolean
+        }
+      }
     }
   }
 
-  // Plataforma nunca para consultor
-  if (!isOwner) base.plataforma = false
+  // Garantir que owner sempre tem plataforma: true
+  if (isOwner) base.plataforma = true
 
   return base
 }
