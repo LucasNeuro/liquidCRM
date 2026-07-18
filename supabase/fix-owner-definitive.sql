@@ -82,6 +82,7 @@ AS $$
 $$;
 
 -- 8. RLS: Garante que owners sempre possam ler e atualizar seus próprios perfis
+-- (Mesmo se active for false, o trigger já garante que será true)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
 -- Policy para SELECT: owner vê tudo, consultor vê só seu perfil
@@ -112,23 +113,7 @@ CREATE POLICY profiles_update_policy ON public.profiles
     (id = auth.uid())
   );
 
--- 9. CORREÇÃO ESPECÍFICA: Atualiza o usuário neuroboost.ai2025@gmail.com
-UPDATE public.profiles 
-SET 
-  role = 'owner',
-  active = true,
-  menu_access = '{
-    "dashboard": true,
-    "leads": true,
-    "tentativas": true,
-    "pesquisas": true,
-    "negocios": true,
-    "distribuicao": true,
-    "plataforma": true
-  }'::jsonb
-WHERE email = 'neuroboost.ai2025@gmail.com';
-
--- 10. Verificação final
+-- 9. Verificação final
 SELECT 
   id, 
   email, 
@@ -141,7 +126,7 @@ FROM public.profiles
 WHERE role = 'owner'
 ORDER BY email;
 
--- 11. Contagem de owners ativos
+-- 10. Contagem de owners ativos
 SELECT 
   COUNT(*) as total_owners,
   COUNT(*) FILTER (WHERE active = true) as active_owners,
